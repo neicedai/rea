@@ -35,6 +35,7 @@
   },
   "bin": {
     "rea": "scripts/rea.mjs",
+    "tools/nes",
     "rea-agents": "scripts/rea.mjs"
   },
   "engines": {
@@ -120,6 +121,7 @@
     "test": "npm run test:with-build",
     "test:with-build": "npm run test:prepare && vitest run",
     "test:run": "vitest run",
+    "test:nes": "node --test tests/rea-nes.test.mjs",
     "test:local": "node scripts/run-development-tests.mjs local",
     "test:fast": "vitest run --project domain --project services --project adapters --project composition --project conformance --project evaluation",
     "pretest:boundary": "npm run test:prepare",

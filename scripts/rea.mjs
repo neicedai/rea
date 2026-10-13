@@ -30,6 +30,10 @@ if (
   process.env.PLAYWRIGHT_BROWSERS_PATH = join(cacheRoot, "ms-playwright");
 }
 
+if (args[0] === "nes-analyze") {
+  const { runNesCli } = await import("../tools/nes/rea-nes.mjs");
+  process.exitCode = await runNesCli(args.slice(1));
+} else {
 const runtimeFiles = isMcpMode
   ? ["dist/main.js"]
   : isMcpDoctorMode
@@ -81,6 +85,8 @@ if (!(await compiledRuntimeExists(runtimeFiles))) {
     if (!wroteOutput && !resultOutput?.handled)
       process.stdout.write(renderEmptyFilteredCliOutput(args) ?? "");
   }
+}
+
 }
 
 async function compiledRuntimeExists(paths) {
