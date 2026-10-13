@@ -1,5 +1,6 @@
 import { parseNesRom, fixedCpuWindows, readVectors } from './ines.mjs';
 import { trace6502, officialOpcodeCount } from './mos6502.mjs';
+import { traceMapper19 } from './mapper19-static.mjs';
 
 /** Whole-ROM lossless inventory; flow analysis follows only provable ROM mappings. */
 export function inspectNesBytes(raw, { maxInstructions = 30000, maxBytes = 64 * 1024 * 1024 } = {}) {
@@ -39,7 +40,7 @@ export function inspectNesBytes(raw, { maxInstructions = 30000, maxBytes = 64 * 
   for (let i = 0; i + 2 < parsed.prg.length && mapper_register_candidates.length < 2048; i++) {
     if (parsed.prg[i] !== 0x8d) continue; // STA absolute
     const address = parsed.prg[i + 1] | (parsed.prg[i + 2] << 8);
-    const reg = mapperRegisters.find(([r]) => r === address);
+    const reg = mapperRegisters.find(([r]) => address >= r && address < r + 0x800);
     if (!reg) continue;
     const precedingLdaImmediate = i >= 2 && parsed.prg[i - 2] === 0xa9;
     mapper_register_candidates.push({
@@ -71,6 +72,7 @@ export function inspectNesBytes(raw, { maxInstructions = 30000, maxBytes = 64 * 
     fixed_cpu_windows: fixed,
     vectors,
     static_flow: cfg,
+    symbolic_mapper19: traceMapper19(parsed, { maxStates: Math.min(maxInstructions, 30000) }),
     raw_opcode_index: likelyTargets,
     mapper_register_candidates,
     coverage: {

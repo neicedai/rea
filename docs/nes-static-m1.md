@@ -9,7 +9,8 @@ This is a **working, bounded first stage**, not complete reconstruction of a gam
 - Verified **fixed** 8 KiB CPU ROM windows for common mapper configurations 0, 2, 3, 4, 19. Switchable slots are not guessed; partial and unsupported mappings are reported.
 - Reset/NMI/IRQ vectors where the vector page is fixed.
 - All 151 documented NMOS 6502 opcodes, reachable control-flow from vectors, static JSR/JMP/conditional branch edges, explicit unresolved indirect/unknown-bank edges, bounded analysis.
-- Whole-PRG raw JSR/JMP signature index, **not** asserted to be valid code; Mapper 19 `$E000/$E800/$F000` bank register store candidates with raw-versus-reachable distinction.
+- Whole-PRG raw JSR/JMP signature index, **not** asserted to be valid code; Mapper 19 `$E000-$E7FF/$E800-$EFFF/$F000-$F7FF` bank register store candidates with raw-versus-reachable distinction.
+- A path-sensitive Mapper 19 partial evaluator: propagates known A/X/Y immediates to bank register writes, explores both conditional branch outcomes, follows resolved banked subroutine calls and returns (bounded call depth); flags, RAM contents and indirect values remain unknown.
 - CLI and a small stdio MCP tool for Codex, no emulator or Ghidra needed. Local file reads only, default 64 MiB ROM budget, no target execution.
 
 ## Installation into cloned REA (source checkout)
@@ -39,7 +40,7 @@ The installer stops rather than overwriting existing NES extension files. It sav
 
 **Mapping supported:** Mapper 0/3 exactly 16/32 KiB NROM-style PRG images; Mapper 2 fixed upper 16 KiB; Mapper 4 and Mapper 19 fixed last 8 KiB. Mapper-specific board variants may differ; these rules are not full cartridge emulation. All other mappers return inventory with zero assumed fixed windows. In Mapper 19 (Namco 163), `$8000/$A000/$C000` switch 8 KiB PRG windows via `$E000/$E800/$F000`, while `$E000-$FFFF` maps the final 8 KiB bank. Bank selector writes need actual CPU state to establish subsequent calls.
 
-**Priorities for M2:** Parse proven mapper writes and constant-propagate bank register state, carry `(PRG bank, CPU window, call context)` in a bounded multi-bank CFG, recognize jump tables and data/code boundaries, integrate Ghidra's `6502:LE:16:default` raw loader or a bank-aware image adapter, preserve first-class NES Evidence in main REA MCP. M3 should add CHR tile analysis, text/table candidate extraction and validation against a deterministic emulator for runtime-dependent behavior. Full game-semantic reconstruction is a research objective, not an automatic completeness guarantee.
+**Priorities for M2:** Extend the preliminary Mapper 19 bank-state evaluator to table-driven bank values, ROM jump tables and context merging; carry `(PRG bank, CPU window, call context)` in a bounded multi-bank CFG, recognize jump tables and data/code boundaries, integrate Ghidra's `6502:LE:16:default` raw loader or a bank-aware image adapter, preserve first-class NES Evidence in main REA MCP. M3 should add CHR tile analysis, text/table candidate extraction and validation against a deterministic emulator for runtime-dependent behavior. Full game-semantic reconstruction is a research objective, not an automatic completeness guarantee.
 
 ## Sources
 

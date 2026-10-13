@@ -95,3 +95,27 @@ test('Mapper19 identifies a bank register write only as a syntactic candidate', 
   assert.equal(hit.preceding_immediate_candidate, 3);
   assert.equal(hit.status, 'vector-reachable-instruction');
 });
+
+
+test('Mapper19 symbolic analysis follows a known switch into a different bank and returns', () => {
+  const r = rom(19, 8);
+  // Reset in the fixed final 8 KiB bank: LDA #$03, STA $E000, JSR $8000, RTS
+  const fixed = 16+7*8192;
+  r.set([0xa9,0x03,0x8d,0x00,0xe0,0x20,0x00,0x80,0x60], fixed);
+  // Bank 3 is selected at $8000 and contains RTS.
+  r[16+3*8192] = 0x60;
+  const result = inspectNesBytes(r);
+  const flow = result.symbolic_mapper19;
+  assert.ok(flow.instructions.some(x => x.bank===3 && x.cpu_address==='0x8000'));
+  assert.ok(flow.bank_switches.some(x => x.register==='0xE000' && x.mapped_bank===3));
+  assert.equal(flow.coverage.truncated, false);
+});
+
+test('Mapper19 symbolic analysis does not invent an unknown bank value', () => {
+  const r = rom(19, 8);
+  const fixed = 16+7*8192;
+  r.set([0xad,0x00,0x02,0x8d,0x00,0xe0,0x20,0x00,0x80,0x60], fixed);
+  const flow = inspectNesBytes(r).symbolic_mapper19;
+  assert.ok(flow.unresolved.some(x=>x.cpu_address==='0x8000'));
+  assert.ok(!flow.instructions.some(x=>x.bank!==7));
+});
