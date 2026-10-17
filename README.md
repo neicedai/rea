@@ -392,3 +392,42 @@ demos remain subject to vendor terms, including user, feature, automation, and
 output sharing restrictions. Cracked copies, stolen keys, unauthorized key
 sharing, and bypassing license restrictions are not authorized. This guidance
 does not amend MIT or third-party licenses.
+
+## FC / NES cartridge analysis
+
+[FC/NES iNES and NES 2.0 cartridges](docs/ghidra-nes.md) support Mapper
+0/1/2/3/4/5/7/9/10/11/16/19/21/22/23/24/25/26/32/33/34/65/66/67/68/69/71/73/75/76/78/87/159/180/206/232 static analysis with verified PRG mappings and separate address
+spaces for switchable banks. MMC1/MMC2/MMC3/MMC4 accept complete register states through
+`--nes-prg-views` for calls and instructions spanning multiple windows.
+Optional standard-controller input facts support D0 serial reads, partial button
+proofs, input-selected branches/banks and replay without claiming observed gameplay.
+VRC2/VRC4 use explicit NES 2.0 board submappers or a caller-selected `wiring`
+assumption for unchanged legacy/submapper-0 images; VRC4 state and views require
+`variant: "vrc4"` to distinguish their address wiring and banking features.
+VRC6 (Mapper 24/26) adds 16/8 KiB PRG switching, CHR/CIRAM versus ROM nametable
+sources, declared RAM gating, explicit IRQ calculations and raw audio registers.
+Bandai Mapper 16/159 adds chip-specific register ports, 16 KiB PRG and 1 KiB CHR
+switching, mirroring and explicit IRQ calculations. Optional Xicor EEPROM models
+trace serial reads, page buffers and explicit write completion from supplied byte assumptions.
+Sunsoft Mapper 69 adds a ROM/RAM window at `$6000`, three selected PRG banks,
+explicit FME-7/5A/5B profiles, banked RAM provenance and conditional IRQ calculations.
+VRC6 (Mapper 24/26) retains compatible CHR-ROM/CIRAM byte sources under all qualified B003 modes, with optional two-page CIRAM backing, CPU2007 buffer history and frozen pattern/nametable/sprite/viewport queries. Unprovided backing remains explicit unknown; these queries do not execute PPU fetches or infer rendering timing.
+Namco 163 (Mapper 19) adds three PRG selectors, CHR-ROM/CIRAM pattern and
+nametable sources, four external RAM protection regions and explicit saturating
+IRQ calculations. Optional 2 KiB CIRAM backing shares physical bytes between
+pattern and nametable windows, including conditional writes, CPU2007 buffer
+history and frozen graphics queries. Missing backing and possible audio-debug
+graphics retain explicit unknown sources. An explicit chip RAM profile adds
+indexed read/write and pointer analysis; sound execution remains unmodeled.
+MMC5 (Mapper 5) adds four PRG modes, explicit external RAM wiring and protection,
+ROM/RAM window changes and source provenance. Static contexts import ROM windows
+only. Its multiplier and ExRAM CPU modes 2/3 retain partial values and sources;
+CHR A/B windows preserve write-time mode and upper-bit latches. Qualified PPU
+events locate CHR sources and derive nametable ExRAM, fill and zero-page values,
+including PPU ExRAM writes. An explicit MMC5 scanline event model adds delayed
+PPU-read detection, supplied M2 idle cycles, pending/enable/status analysis and
+frame-qualified ExRAM CPU writes. An optional MMC5 background model interprets
+caller-qualified fetch sequences for extended attributes and vertical split,
+retaining captured ExRAM bytes, palette indices and compatible CHR offsets.
+CIRAM/CHR RAM byte backing, automatic frame/fetch recognition, PCM/audio/timer
+IRQs, transient pulse timing and sound remain unmodeled.

@@ -202,6 +202,9 @@ const registerOpenLifecycleTool = (
           ...(input.provider_id === undefined
             ? {}
             : { providerId: input.provider_id }),
+          ...(input.nes_prg_views === undefined
+            ? {}
+            : { nesPrgViews: input.nes_prg_views }),
           ...(snapshot === undefined ? {} : { snapshot }),
         }),
       );

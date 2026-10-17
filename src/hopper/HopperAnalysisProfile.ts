@@ -127,6 +127,14 @@ export const hopperLoaderArgsForTarget = (
     return err(new ProviderAdapterError("hopper", "resolve_analysis_profile"));
   if (target.format === "raw-binary")
     return err(new ProviderAdapterError("hopper", "resolve_analysis_profile"));
+  if (target.format === "nes")
+    return err(
+      new AnalysisCapabilityUnavailableError(
+        "hopper",
+        "resolve_analysis_profile",
+        "NES ROM analysis requires the Ghidra NES adapter; REA's Hopper adapter has no NES import profile.",
+      ),
+    );
   const architecture = target.architecture;
   if (isElfMetadataArchitecture(architecture))
     return err(

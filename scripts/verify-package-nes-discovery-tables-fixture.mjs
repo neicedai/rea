@@ -1,0 +1,260 @@
+/** Independent literal-byte dispatch corpus, with a trainer and poisoned false pairs. */
+export const PRG = 528,
+  PRG_SIZE = 131072,
+  CHR_SIZE = 8192;
+
+export const initial = () => ({
+  mapper: 4,
+  bank_select: 6,
+  banks: [0, 2, 4, 5, 6, 7, 1, 3],
+  mirroring: 0,
+  ram_protect: 0,
+  irq_latch: 0,
+  last_irq_command: "disable-acknowledge",
+});
+
+export const entries = {
+  paired: 0xe000,
+  copiedIndex: 0xe040,
+  full: 0xe100,
+  transformed: 0xe180,
+  independent: 0xe1c0,
+  wrapped: 0xe520,
+  mixed: 0xe580,
+  computed: 0xe800,
+  computedCall: 0xe803,
+  computedCallee: 0xe840,
+  computedReturn: 0xe853,
+  callerResume: 0xe806,
+  returnedIndex: 0xe900,
+  indexHelper: 0xe940,
+  recursive: 0xe980,
+  recursiveCallee: 0xe9c0,
+  opaque: 0xeb00,
+  finiteLoop: 0xeb80,
+};
+
+export const paired = [
+  { selector: 0, low: 0x10, high: 0x81, bank: 1, address: 0x8110 },
+  { selector: 1, low: 0x20, high: 0x82, bank: 5, address: 0x8220 },
+];
+
+export const tableReads = {
+  paired: [0xe005, 0xe00a, 0xe00f],
+  full: [0xe102, 0xe107, 0xe10c],
+  returned: [0xe903, 0xe908, 0xe90d],
+};
+
+export const targets = (kind) => {
+  if (kind === "full")
+    return Array.from({ length: 256 }, (_, selector) => ({
+      selector,
+      low: (4 * selector) & 255,
+      high: 0x80 + (selector >> 6),
+      bank: 1 + 4 * (selector & 1),
+      address: 0x8000 + 4 * selector,
+    }));
+  if (kind === "transformed")
+    return [
+      { selector: 0, bank: 1, address: 0x8210 },
+      { selector: 1, bank: 1, address: 0x8320 },
+    ];
+  if (kind === "independent")
+    return [0x8110, 0x8120, 0x8210, 0x8220].map((address) => ({
+      bank: 1,
+      address,
+    }));
+  return paired;
+};
+
+const dispatch = (low, high, bank) => [
+  0xbd,
+  low & 255,
+  low >> 8,
+  0x85,
+  2,
+  0xbd,
+  high & 255,
+  high >> 8,
+  0x85,
+  3,
+  0xbd,
+  bank & 255,
+  bank >> 8,
+  0x8d,
+  1,
+  0x80,
+  0x6c,
+  2,
+  0,
+];
+
+function programs(fixed) {
+  fixed(entries.paired, [
+    0xa5,
+    0x10,
+    0x29,
+    1,
+    0xaa,
+    ...dispatch(0xe2ff, 0xe3ff, 0xe4ff),
+  ]);
+  fixed(
+    entries.copiedIndex,
+    [
+      0xa5, 0x10, 0x29, 1, 0xaa, 0xa8, 0xbd, 0xff, 0xe2, 0x85, 2, 0xb9, 0xff,
+      0xe3, 0x85, 3, 0xbd, 0xff, 0xe4, 0x8d, 1, 0x80, 0x6c, 2, 0,
+    ],
+  );
+  fixed(entries.full, [0xa6, 0x10, ...dispatch(0xe600, 0xe700, 0xe800)]);
+  fixed(
+    entries.transformed,
+    [
+      0xa5, 0x10, 0x29, 1, 0xaa, 0xbd, 0xff, 0xe2, 0x85, 2, 0xe8, 0xbd, 0xff,
+      0xe3, 0x85, 3, 0xa9, 1, 0x8d, 1, 0x80, 0x6c, 2, 0,
+    ],
+  );
+  fixed(
+    entries.independent,
+    [
+      0xa5, 0x10, 0x29, 1, 0xaa, 0xbd, 0xff, 0xe2, 0x85, 2, 0xa5, 0x11, 0x29, 1,
+      0xaa, 0xbd, 0xff, 0xe3, 0x85, 3, 0xa9, 1, 0x8d, 1, 0x80, 0x6c, 2, 0,
+    ],
+  );
+  fixed(
+    entries.wrapped,
+    [
+      0xa9, 0, 0x85, 0xff, 0xa9, 0x81, 0x85, 0, 0xa9, 0x82, 0x85, 1, 0xa5, 0x10,
+      0x29, 1, 0xaa, 0xa1, 0xff, 0x85, 2, 0xa9, 0x83, 0x85, 3, 0x6c, 2, 0,
+    ],
+  );
+  fixed(
+    entries.mixed,
+    [
+      0xa5, 0x10, 0x29, 1, 0xaa, 0xbd, 0xff, 0x7f, 0x85, 2, 0xa9, 0x81, 0x85, 3,
+      0x6c, 2, 0,
+    ],
+  );
+  fixed(
+    entries.computed,
+    [0xa2, 0xfd, 0x9a, 0x20, 0x40, 0xe8, 0x85, 0x11, 0x4c, 8, 0xe8],
+  );
+  fixed(entries.opaque, [0x20, 0x40, 0xe8, 0x4c, 3, 0xeb]);
+  fixed(
+    entries.computedCallee,
+    [
+      0xa5, 0x10, 0x29, 1, 0xa8, 0xb9, 0xff, 0xe4, 0x8d, 1, 0x80, 0xb9, 0, 0xec,
+      0x48, 0xb9, 2, 0xec, 0x48, 0x60,
+    ],
+  );
+  fixed(entries.returnedIndex, [
+    0x20,
+    0x40,
+    0xe9,
+    ...dispatch(0xe2ff, 0xe3ff, 0xe4ff),
+  ]);
+  fixed(entries.indexHelper, [0xa5, 0x10, 0x29, 1, 0xaa, 0x60]);
+  fixed(
+    entries.recursive,
+    [0xa2, 0xfd, 0x9a, 0x20, 0xc0, 0xe9, 0x4c, 0x86, 0xe9],
+  );
+  fixed(
+    entries.recursiveCallee,
+    [
+      0xa5, 0x10, 0x29, 1, 0xaa, 0xbd, 0, 0xed, 0x85, 2, 0xbd, 2, 0xed, 0x85, 3,
+      0x6c, 2, 0,
+    ],
+  );
+  fixed(0xe9e0, [0xa9, 0x7c, 0x60]);
+  fixed(0xea00, [0xa9, 0, 0x85, 0x10, 0x20, 0xc0, 0xe9, 0x60]);
+  fixed(
+    entries.finiteLoop,
+    [0xa2, 0, 0xbd, 0xff, 0xe2, 0xe8, 0x8a, 0x29, 1, 0xaa, 0x4c, 0x82, 0xeb],
+  );
+}
+
+export function fixture(kind = "paired") {
+  const bytes = Buffer.alloc(PRG + PRG_SIZE + CHR_SIZE, 2);
+  bytes.fill(0, 0, 16);
+  bytes.set([78, 69, 83, 26, 8, 1, 0x44, 8]);
+  bytes.fill(0x5a, 16, PRG);
+  bytes.fill(0x69, PRG + PRG_SIZE);
+  const put = (bank, offset, values) =>
+      bytes.set(values, PRG + bank * 8192 + offset),
+    fixed = (address, values) => put(15, address - 0xe000, values);
+  programs(fixed);
+  fixed(0xe2ff, [0x10, 0x20]);
+  fixed(0xe3ff, [0x81, 0x82, 0x83]);
+  fixed(0xe4ff, [1, 5]);
+  fixed(0xec00, [0x81, 0x82, 0x10, 0x21]);
+  fixed(0xed00, [0xe0, 0, 0xe9, 0xea]);
+  for (const item of targets(kind))
+    put(item.bank, item.address - 0x8000, [
+      0x4c,
+      item.address & 255,
+      item.address >> 8,
+    ]);
+  if (kind === "full") {
+    fixed(
+      0xe600,
+      targets(kind).map((item) => item.low),
+    );
+    fixed(
+      0xe700,
+      targets(kind).map((item) => item.high),
+    );
+    fixed(
+      0xe800,
+      targets(kind).map((item) => item.bank),
+    );
+  } else if (kind === "wrapped") {
+    put(1, 0x100, [0x10]);
+    put(1, 0x281, [0x20]);
+    put(1, 0x310, [0x4c, 0x10, 0x83]);
+    put(1, 0x320, [0x4c, 0x20, 0x83]);
+  } else if (kind === "mixed") put(1, 0, [0x10]);
+  else if (kind === "rts") {
+    put(1, 0x111, [0xa9, 0x31, 0x60]);
+    put(5, 0x222, [0xa9, 0x55, 0x60]);
+  }
+  for (const distance of [6, 4, 2])
+    bytes.writeUInt16LE(entries.paired, PRG + PRG_SIZE - distance);
+  return bytes;
+}
+
+export const mmc1Initial = () => ({
+  mapper: 1,
+  prg_mode: 3,
+  prg_bank: 0,
+  chr_mode: 0,
+  mirroring: 0,
+  prg_ram_disable_bit: 0,
+  chr_bank_0: 0,
+  chr_bank_1: 0,
+  shift_bits: [],
+});
+
+export function mmc1Fixture() {
+  const bytes = Buffer.alloc(PRG + 65536 + CHR_SIZE, 2);
+  bytes.fill(0, 0, 16);
+  bytes.set([78, 69, 83, 26, 4, 1, 0x14, 8]);
+  bytes.fill(0x5a, 16, PRG);
+  bytes.fill(0x69, PRG + 65536);
+  const fixed = (address, values) =>
+    bytes.set(values, PRG + 49152 + address - 0xc000);
+  fixed(
+    0xc000,
+    [
+      0xa5, 0x10, 0x29, 1, 0xaa, 0xbd, 0xff, 0xc2, 0x8d, 0, 0xe0, 0xa9, 0, 0x8d,
+      0, 0xe0, 0xa9, 0, 0x8d, 0, 0xe0, 0xa9, 0, 0x8d, 0, 0xe0, 0xa9, 0, 0x8d, 0,
+      0xe0, 0xbd, 0xff, 0xc3, 0x85, 2, 0xbd, 0xff, 0xc4, 0x85, 3, 0x6c, 2, 0,
+    ],
+  );
+  fixed(0xc2ff, [0, 1]);
+  fixed(0xc3ff, [0x10, 0x20]);
+  fixed(0xc4ff, [0x81, 0x82]);
+  bytes.set([0x4c, 0x10, 0x81], PRG + 0x110);
+  bytes.set([0x4c, 0x20, 0x82], PRG + 16384 + 0x220);
+  for (const distance of [6, 4, 2])
+    bytes.writeUInt16LE(0xc000, PRG + 65536 - distance);
+  return bytes;
+}

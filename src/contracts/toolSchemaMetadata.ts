@@ -8,6 +8,8 @@ import {
   presentInputJsonSchema,
 } from "./inputSchemaPresentation.js";
 import { digestCanonicalValue } from "../domain/canonicalDigest.js";
+import { guardOutputSchemaUnions } from "./guardOutputSchemaUnions.js";
+import { factorInputJsonSchema } from "./inputSchemaFactorization.js";
 
 const PROPERTY_DESCRIPTIONS: Readonly<Record<string, string>> = {
   addresses: "Ordered provider-normalized procedure addresses to analyze.",
@@ -55,12 +57,16 @@ const PROPERTY_DESCRIPTIONS: Readonly<Record<string, string>> = {
 };
 
 type JsonSchemaProjection = z.ZodType["~standard"]["jsonSchema"]["input"];
+const inputMetadataSchemas = new WeakMap<ToolContract, z.ZodType>();
+const outputMetadataSchemas = new WeakMap<ToolContract, z.ZodType>();
 
 /** Attach caller guidance to a canonical schema for the SDK wire projection. */
 export const toolInputSchemaWithMetadata = <Contract extends ToolContract>(
   contract: Contract,
-): Contract["inputSchema"] =>
-  withAdvertisedJsonSchema(
+): Contract["inputSchema"] => {
+  const cached = inputMetadataSchemas.get(contract);
+  if (cached !== undefined) return cached as Contract["inputSchema"];
+  const schema = withAdvertisedJsonSchema(
     contract.inputSchema,
     "input",
     (project) => (options) => {
@@ -74,25 +80,32 @@ export const toolInputSchemaWithMetadata = <Contract extends ToolContract>(
         // rendering declarations from a shared expansion budget degrades
         // every reference past it to `unknown`, so an input whose shared form
         // exceeds the budget is re-projected without shared definitions.
-        ...inputSchemaWithinReferenceExpansionBudget(
-          presentInputJsonSchema(shared, fallbackPropertyDescription),
-          () =>
-            presentInputJsonSchema(
-              project({
-                ...options,
-                libraryOptions: {
-                  ...options.libraryOptions,
-                  reused: "inline",
-                },
-              }),
-              fallbackPropertyDescription,
-            ),
+        ...factorInputJsonSchema(
+          inputSchemaWithinReferenceExpansionBudget(
+            presentInputJsonSchema(shared, fallbackPropertyDescription),
+            () =>
+              presentInputJsonSchema(
+                project({
+                  ...options,
+                  libraryOptions: {
+                    ...options.libraryOptions,
+                    reused: "inline",
+                  },
+                }),
+                fallbackPropertyDescription,
+              ),
+            advertisedReferenceExpansionBudget,
+          ),
           advertisedReferenceExpansionBudget,
+          options.target,
         ),
         ...(examples.length === 0 ? {} : { examples }),
       };
     },
   );
+  inputMetadataSchemas.set(contract, schema);
+  return schema;
+};
 
 /** Return the same complete input JSON Schema projection registered on MCP. */
 export const advertisedInputJsonSchema = <Contract extends ToolContract>(
@@ -105,8 +118,10 @@ export const advertisedInputJsonSchema = <Contract extends ToolContract>(
 /** Share output definitions and content-bound validator identities on the wire. */
 export const toolOutputSchemaWithMetadata = <Contract extends ToolContract>(
   contract: Contract,
-): Contract["outputSchema"] =>
-  withAdvertisedJsonSchema(
+): Contract["outputSchema"] => {
+  const cached = outputMetadataSchemas.get(contract);
+  if (cached !== undefined) return cached as Contract["outputSchema"];
+  const schema = withAdvertisedJsonSchema(
     contract.outputSchema,
     "output",
     (project) => (options) => {
@@ -117,15 +132,19 @@ export const toolOutputSchemaWithMetadata = <Contract extends ToolContract>(
       // An explicit ID owns the reference base. Relative external references
       // also depend on that base, so leave those projections unchanged.
       if ("$id" in shared || hasRelativeSchemaReference(shared)) return shared;
+      const guarded = guardOutputSchemaUnions(shared, options.target);
       return {
-        ...shared,
+        ...guarded,
         $id: `urn:rea:tool-output:sha256:${digestCanonicalValue(
-          { target: options.target, schema: shared },
+          { target: options.target, schema: guarded },
           "Tool output schema",
         )}`,
       };
     },
   );
+  outputMetadataSchemas.set(contract, schema);
+  return schema;
+};
 
 /**
  * Apply a wire-presentation transform to one schema's advertised input
@@ -215,12 +234,39 @@ const withAdvertisedJsonSchema = <Schema extends z.ZodType>(
       ...standard,
       jsonSchema: {
         ...standard.jsonSchema,
-        [io]: memoizeByTarget(advertise(project)),
+        [io]: memoizeByTarget(advertise(withProjectionMetadata(project))),
       },
     },
   });
   return schema;
 };
+
+/** Zod appends legacy-dialect references to metadata allOf arrays during conversion. */
+const withProjectionMetadata =
+  (project: JsonSchemaProjection): JsonSchemaProjection =>
+  (options) => {
+    const source = options.libraryOptions?.["metadata"] ?? z.globalRegistry;
+    if (!isSchemaRecord(source) || typeof source["get"] !== "function")
+      return project(options);
+    const get = source["get"];
+    const metadataRegistry = z.registry();
+    metadataRegistry.get = (schema) => {
+      const metadata: unknown = Reflect.apply(get, source, [schema]);
+      if (metadata === undefined) return undefined;
+      if (!isSchemaRecord(metadata))
+        throw new TypeError("JSON Schema metadata must be an object");
+      return {
+        ...metadata,
+        ...(Array.isArray(metadata["allOf"])
+          ? { allOf: [...metadata["allOf"]] }
+          : {}),
+      };
+    };
+    return project({
+      ...options,
+      libraryOptions: { ...options.libraryOptions, metadata: metadataRegistry },
+    });
+  };
 
 // The SDK reconverts every registered schema on each `tools/list`, although a
 // registered contract cannot change. Like the SDK's own memoized output

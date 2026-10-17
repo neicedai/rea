@@ -315,3 +315,7 @@ remain subject to vendor terms, including user, feature, automation, and output
 sharing restrictions. Cracked copies, stolen keys, unauthorized key sharing,
 and bypassing license restrictions are not authorized. This guidance does not
 amend MIT or third-party licenses.
+
+## FC / NES
+
+[FC/NES cartridge analysis](../ghidra-nes.md): iNES/NES 2.0 inspection, supported mapper bank contexts, CPU/RAM source analysis and code discovery through CLI/MCP.

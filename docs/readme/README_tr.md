@@ -322,3 +322,7 @@ paylaşımı kısıtlamaları dahil olmak üzere satıcı koşullarına tabidir.
 kopyalar, çalınmış anahtarlar, yetkisiz anahtar paylaşımı ve lisans
 kısıtlamalarını aşma yetkili kullanım kapsamında değildir. Bu yönlendirme MIT
 veya üçüncü taraf lisanslarını değiştirmez.
+
+## FC / NES
+
+[FC/NES cartridge analysis](../ghidra-nes.md): iNES/NES 2.0 inspection, supported mapper bank contexts, CPU/RAM source analysis and code discovery through CLI/MCP.

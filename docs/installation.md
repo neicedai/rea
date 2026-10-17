@@ -925,7 +925,7 @@ export REA_GHIDRA_LANGUAGE_ID="x86:LE:32:default"
 export REA_GHIDRA_COMPILER_SPEC_ID="borlandcpp"   # optional; requires a language
 ```
 
-REA passes `-processor`/`-cspec`, checks both against the installation's `.ldefs`, and records them in the analysis profile. DOS imports reject an override.
+REA passes `-processor`/`-cspec`, checks both against the installation's `.ldefs`, and records them in the analysis profile. DOS and NES imports reject an override.
 
 To seed code that auto-analysis cannot reach (computed jumps, pointers in data):
 
@@ -933,7 +933,9 @@ To seed code that auto-analysis cannot reach (computed jumps, pointers in data):
 export REA_GHIDRA_SEED_FILE=/absolute/path/to/seeds.tsv
 ```
 
-Each line is `address<TAB>kind[<TAB>name]`, where kind is `function`, `code` or `label` (a label needs a name). Addresses are `0x` hex in the default space; `#` lines are comments. A pre-script applies seeds before auto-analysis: functions from the highest address down, then code, then labels. The seed digest is part of the analysis profile, and the session fails if the applied seeds differ. Result limitations report the outcome counts; a seed fails when it overlaps an instruction Ghidra already decoded.
+Each line is `address<TAB>kind[<TAB>name]`, where kind is `function`, `code` or `label` (a label needs a name). Use `0x` hex for the default space, or a space-qualified address such as `NES_PRG_B001:0x8000` for an NES bank overlay. Space names are case-sensitive; characters outside letters, digits, `.`, `_`, `~`, and `-` use percent-encoded UTF-8, as in `overlay%3Atext:0x8000`. Equal offsets in different spaces remain distinct. Percent-encoding aliases and leading offset zeros normalize to one coordinate; duplicate seeds of the same kind at that coordinate are rejected. An unknown space or an unmapped bank address is reported as unmapped and never falls back to default memory. `#` lines are comments.
+
+A pre-script applies seeds before auto-analysis: functions from the highest address down, then code, then labels. The seed digest includes the canonical space and offset and is part of the analysis profile; the session fails if the applied seeds differ. Existing default-space seed files retain their canonical form and digest. Result limitations report the outcome counts; a seed fails when it overlaps an instruction Ghidra already decoded. Seeds assert code locations and do not establish which cartridge bank was selected at runtime.
 
 Label seeds can name mapped uninitialized storage such as `.bss`; function and code seeds require initialized bytes.
 

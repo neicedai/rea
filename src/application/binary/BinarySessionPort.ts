@@ -4,6 +4,7 @@ import type {
   BinaryArchitecture,
   BinaryTarget,
 } from "../../domain/binaryTargetTypes.js";
+import type { NesPrgView } from "../../domain/nesPrgViews.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import type { AnalysisSnapshot } from "../../domain/analysisSnapshot.js";
 import type { AnalysisProfileCommitment } from "../../domain/analysisProfile.js";
@@ -72,6 +73,7 @@ export interface BinarySessionPort
       readonly entryPoint?: string;
       readonly snapshot?: AnalysisSnapshot;
       readonly providerId?: AnalysisProviderSelector;
+      readonly nesPrgViews?: readonly NesPrgView[];
     },
   ): Promise<Result<BinaryTarget, AnalysisError>>;
   close(

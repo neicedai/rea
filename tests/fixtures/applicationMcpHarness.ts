@@ -1,10 +1,18 @@
 import { ok as resultOk } from "../../src/domain/result.js";
-import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import type { Client } from "@modelcontextprotocol/client";
+import { onTestFinished } from "vitest";
 
 import { createTestBinarySession } from "./binarySession.js";
 import type { BinarySession } from "../../src/application/binary/BinarySession.js";
 import { observed } from "./analysisExecution.js";
-import { createServer } from "../../src/server/createServer.js";
+import {
+  createServer,
+  type CreateServerOptions,
+} from "../../src/server/createServer.js";
+import {
+  createTestMcp,
+  type McpClientIdentity,
+} from "../support/mcp/mcpFixture.js";
 
 /** Owned MCP SDK session shared by application workflow scenarios. */
 export interface ApplicationMcpHarness {
@@ -17,7 +25,8 @@ export interface ApplicationMcpHarness {
 export async function createApplicationMcpHarness(
   options: {
     readonly session?: BinarySession;
-    readonly serverOptions?: Parameters<typeof createServer>[1];
+    readonly serverOptions?: CreateServerOptions;
+    readonly identity?: McpClientIdentity;
   } = {},
 ): Promise<ApplicationMcpHarness> {
   const session =
@@ -26,25 +35,60 @@ export async function createApplicationMcpHarness(
       execute: () => Promise.resolve(observed(null)),
       close: () => Promise.resolve(resultOk(null)),
     }));
-  const server = createServer(
-    { kind: "session", session },
-    options.serverOptions,
-  );
-  const client = new Client({
-    name: "application-workflow-test",
-    version: "1",
-  });
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-
-  return {
-    client,
-    session,
-    close: async () => {
-      await Promise.all([client.close(), server.close(), session.close()]);
-    },
+  const registry = createTestMcp();
+  let sessionClosed = false;
+  let closing: Promise<void> | undefined;
+  const closeSession = async () => {
+    if (sessionClosed) return;
+    const result = await session.close();
+    if (!result.ok) throw result.error;
+    sessionClosed = true;
   };
+  const close = async () => {
+    if (closing !== undefined) return closing;
+    const pending = (async () => {
+      const failures: unknown[] = [];
+      try {
+        await registry.close();
+      } catch (cause) {
+        failures.push(cause);
+      }
+      try {
+        await closeSession();
+      } catch (cause) {
+        failures.push(cause);
+      }
+      if (failures.length)
+        throw new AggregateError(failures, "Application MCP cleanup failed");
+    })();
+    closing = pending;
+    try {
+      await pending;
+    } finally {
+      closing = undefined;
+    }
+  };
+  onTestFinished(close);
+  try {
+    const server = createServer(
+      { kind: "session", session },
+      options.serverOptions,
+    );
+    const client = await registry.connect(
+      server,
+      options.identity ?? { name: "application-workflow-test", version: "1" },
+    );
+    return { client, session, close };
+  } catch (cause) {
+    try {
+      await close();
+    } catch (cleanup) {
+      throw new AggregateError(
+        [cause, cleanup],
+        "Application MCP initialization and cleanup failed",
+        { cause },
+      );
+    }
+    throw cause;
+  }
 }

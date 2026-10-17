@@ -60,6 +60,7 @@ const formatSchema = z.enum([
   "dos-mz",
   "dos-com",
   "raw-binary",
+  "nes",
   "zip",
   "ipa",
   "apk",
@@ -92,8 +93,12 @@ const subjectFormatSchema = z.enum([
 // Snapshot entries retain the same raw-only architecture boundary as targets.
 const subjectSchema = z.discriminatedUnion("format", [
   subjectBaseSchema.extend({
-    format: subjectFormatSchema.exclude(["raw-binary"]),
+    format: subjectFormatSchema.exclude(["raw-binary", "nes"]),
     architecture: architectureSchema.exclude(["6502"]).nullable(),
+  }),
+  subjectBaseSchema.extend({
+    format: z.literal("nes"),
+    architecture: z.literal("6502"),
   }),
   subjectBaseSchema.extend({
     format: z.literal("raw-binary"),
@@ -108,9 +113,16 @@ const targetIdentitySchema = z.object({
 const targetSchema = z.discriminatedUnion("format", [
   targetIdentitySchema.extend({
     format: z.enum(
-      formatSchema.options.filter((format) => format !== "raw-binary"),
+      formatSchema.options.filter(
+        (format) => format !== "raw-binary" && format !== "nes",
+      ),
     ),
     architecture: architectureSchema.exclude(["6502"]).nullable(),
+  }),
+  targetIdentitySchema.extend({
+    format: z.literal("nes"),
+    kind: z.literal("executable"),
+    architecture: z.literal("6502"),
   }),
   targetIdentitySchema.extend({
     format: z.literal("raw-binary"),
@@ -355,12 +367,19 @@ export const snapshotTarget = (target: BinaryTarget): AnalysisSnapshotTarget =>
         format: target.format,
         entry_point: target.entryPoint,
       }
-    : {
-        sha256: target.sha256,
-        kind: target.kind,
-        architecture: target.architecture ?? null,
-        format: target.format,
-      };
+    : target.format === "nes"
+      ? {
+          sha256: target.sha256,
+          kind: target.kind,
+          architecture: target.architecture,
+          format: target.format,
+        }
+      : {
+          sha256: target.sha256,
+          kind: target.kind,
+          architecture: target.architecture ?? null,
+          format: target.format,
+        };
 
 /** Build the immutable provider/profile binding used by a cached snapshot. */
 export const snapshotBinding = (

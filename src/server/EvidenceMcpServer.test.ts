@@ -25,7 +25,7 @@ describe("MCP request bookkeeping", () => {
   it("releases list, tool, and completion state when cancellation arrives", () => {
     const completion = new AbortController();
     const pendingTools = new Map([[7, "inspect_artifact"]]);
-    const pendingToolLists = new Set([7]);
+    const pendingToolLists = new Map([[7, undefined]]);
     const pendingCompletions = new Map([[7, completion]]);
 
     forgetPendingMcpRequest(

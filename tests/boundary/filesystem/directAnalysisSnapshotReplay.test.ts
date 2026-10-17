@@ -1,6 +1,7 @@
 import { parseConfig } from "../../../src/config/parseConfig.js";
 import { symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import type { BinaryTarget } from "../../../src/domain/binaryTargetTypes.js";
 
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -137,6 +138,9 @@ interface SnapshotProviderOptions {
   readonly identity?: ProviderIdentity;
   readonly supportedOperations?: readonly CapabilityDescriptor["operation"][];
   readonly limitations?: readonly string[];
+  readonly profileForTarget?: (
+    target: BinaryTarget,
+  ) => ReturnType<typeof createAnalysisProfile>;
 }
 
 const makeProvider = (
@@ -169,11 +173,12 @@ const makeProvider = (
   return {
     identity: () => identity,
     capabilities: () => capabilities,
-    resolveAnalysisProfile: async () => {
-      trace.resolutions.push(profile.digest);
-      return ok({ profile });
+    resolveAnalysisProfile: async (target) => {
+      const selected = options.profileForTarget?.(target) ?? profile;
+      trace.resolutions.push(selected.digest);
+      return ok({ profile: selected });
     },
-    createClient: () => {
+    createClient: (_target, selected = profile) => {
       trace.starts.push("start");
       return {
         execute: async (operation) => {
@@ -207,8 +212,8 @@ const makeProvider = (
             );
           const result = results[operation];
           return ok(
-            createAnalysisExecution(result, profile.provider, {
-              analysisProfile: profile,
+            createAnalysisExecution(result, selected.provider, {
+              analysisProfile: selected,
               rawResult: result,
               limitations: options.limitations ?? [],
             }),
@@ -542,6 +547,61 @@ it.each([
     expect(fixture.calls).toEqual(calls);
   },
 );
+describe("NES direct analysis snapshot replay", () => {
+  it("binds NES views before CLI snapshot preview and never replays another selection", async () => {
+    const directory = await createTestTempDirectory(
+      "rea-nes-snapshot-selection-",
+    );
+    const path = join(directory, "fixture.nes");
+    const snapshotPath = join(directory, "snapshot.json");
+    const bytes = Buffer.alloc(16 + 0x8000 + 0x2000);
+    bytes.set([0x4e, 0x45, 0x53, 0x1a, 2, 1, 0x10]);
+    await writeFile(path, bytes);
+    const trace: SnapshotProviderTrace = {
+      starts: [],
+      calls: [],
+      resolutions: [],
+    };
+    const provider = makeProvider(trace, {
+      supportedOperations: ["procedure_pseudo_code"],
+      profileForTarget: (target) =>
+        createAnalysisProfile(IDENTITY, {
+          nes_prg_views:
+            target.format === "nes"
+              ? (target.nesPrgViews?.map((view) => ({ ...view })) ?? null)
+              : null,
+        }),
+    });
+    const dependencies: DirectAnalysisDependencies = {
+      readConfiguration: () => parseConfig({}),
+      createBinarySession: () => createTestBinarySession(provider),
+      createManagedBinarySession: () => createTestBinarySession(provider),
+      createArtifactBinarySession: () => createTestBinarySession(provider),
+    };
+    const nesPrgViews = [{ mapper: 1, prg_mode: 3, prg_bank: 0 }] as const;
+    const run = (views?: typeof nesPrgViews) =>
+      runDirectAnalysis(
+        dependencies,
+        path,
+        "procedure_pseudo_code",
+        { procedure: "0x8000", document: "fixture" },
+        {
+          snapshotPath,
+          ...(views === undefined ? {} : { nesPrgViews: views }),
+        },
+      );
+    const first = await run(nesPrgViews);
+    expect(first).toMatchObject({
+      operation: "procedure_pseudo_code",
+      normalized_result: "return 0;",
+    });
+    expect(trace.starts).toHaveLength(1);
+    expect(await run(nesPrgViews)).toEqual(first);
+    expect(trace.starts).toHaveLength(1);
+    expect(await run()).toMatchObject({ code: "evidence_integrity_mismatch" });
+    expect(trace.starts).toHaveLength(1);
+  });
+});
 
 describe("direct analysis composed snapshot replay", () => {
   it.skipIf(process.platform !== "win32")(

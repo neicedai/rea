@@ -15,6 +15,8 @@ import { z } from "zod";
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
 import { createGhidraTestRuntime } from "../../../fixtures/ghidraRuntime.js";
 import type { PrivateRuntimeRoot } from "../../../../src/process/PrivateRuntimeRoot.js";
+import { parseNesHeader } from "../../../../src/domain/nes.js";
+import { resolveNesMapperLayout } from "../../../../src/domain/nesMapper.js";
 
 import {
   ghidraHeadlessArguments,
@@ -151,6 +153,193 @@ describe("Ghidra raw-binary loader", () => {
     expect(arguments_).toContain("-readOnly");
     expect(arguments_).toContain("-deleteProject");
   });
+});
+
+const nesLaunchBase = {
+  platform: "darwin" as const,
+  projectRoot: "/tmp/project",
+  targetPath: "/tmp/game.nes",
+  bridgeScriptPath: "/package/bridge/ReaGhidraBridge.java",
+  descriptorPath: "/tmp/session.json",
+  ghidraLogPath: "/tmp/ghidra.log",
+  scriptLogPath: "/tmp/script.log",
+  nesLayoutPath: "/tmp/nes-layout.json",
+};
+const nesLaunchMetadata = (banks: number, trainer = false, mapper = 0) => {
+  const header = Buffer.alloc(16);
+  header.set([
+    0x4e,
+    0x45,
+    0x53,
+    0x1a,
+    banks,
+    mapper === 2 || mapper === 7 ? 0 : 1,
+    ((mapper & 15) << 4) | (trainer ? 4 : 0),
+    mapper & 0xf0,
+  ]);
+  const result = parseNesHeader(
+    header,
+    16 + (trainer ? 512 : 0) + banks * 16384 + header.readUInt8(5) * 8192,
+  );
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+};
+
+describe("Ghidra NES loader", () => {
+  it.each([
+    [1, false, 0, "0x10"],
+    [2, true, 0, "0x210"],
+    [16, true, 2, "0x210"],
+    [2, false, 3, "0x10"],
+    [4, true, 1, "0x210"],
+    [4, true, 4, "0x210"],
+    [4, true, 5, "0x210"],
+    [16, false, 7, "0x10"],
+    [8, true, 66, "0x210"],
+  ] as const)(
+    "prepares %i PRG units with trainer=%s mapper=%i from bounded initial import",
+    (banks, trainer, mapper, offset) => {
+      const nes = nesLaunchMetadata(banks, trainer, mapper);
+      const args = ghidraHeadlessArguments({
+        ...nesLaunchBase,
+        nes,
+        seedPath: "/tmp/seeds.tsv",
+      });
+      expectOptions(args, [
+        ["-import", nesLaunchBase.targetPath],
+        ["-loader", "BinaryLoader"],
+        ["-loader-baseAddr", "0x8000"],
+        ["-loader-fileOffset", offset],
+        ["-loader-length", "0x4000"],
+        ["-processor", "6502:LE:16:default"],
+        ["-cspec", "default"],
+      ]);
+      const prepare = args.indexOf("/package/bridge/ReaGhidraPrepareNes.java");
+      expect(args[prepare - 1]).toBe("-preScript");
+      expect(args.slice(prepare + 1, prepare + 6)).toEqual([
+        nesLaunchBase.targetPath,
+        String(nes.prgRom.offset),
+        String(nes.prgRom.size),
+        Buffer.from(nes.header).toString("hex"),
+        nesLaunchBase.nesLayoutPath,
+      ]);
+      expect(prepare).toBeLessThan(
+        args.indexOf("/package/bridge/ReaGhidraApplySeeds.java"),
+      );
+      expect(args).toContain("-readOnly");
+      expect(args).toContain("-deleteProject");
+    },
+  );
+
+  it("rejects unmodeled mappers and conflicting import interpretations", () => {
+    expect(() =>
+      ghidraHeadlessArguments({
+        ...nesLaunchBase,
+        nes: nesLaunchMetadata(1, false, 6),
+      }),
+    ).toThrow(/Mapper 6/u);
+    expect(() =>
+      ghidraHeadlessArguments({
+        ...nesLaunchBase,
+        nes: nesLaunchMetadata(1),
+        dosCom: true,
+      }),
+    ).toThrow(/cannot be combined/u);
+    expect(() =>
+      ghidraHeadlessArguments({
+        ...nesLaunchBase,
+        nes: nesLaunchMetadata(1),
+        languageOverride: { languageId: "6502:LE:16:default" },
+      }),
+    ).toThrow(/cannot be combined/u);
+    expect(() =>
+      ghidraHeadlessArguments({
+        ...nesLaunchBase,
+        platform: "win32",
+        nes: nesLaunchMetadata(1),
+      }),
+    ).toThrow(/Windows Ghidra P0/u);
+  });
+});
+
+describe("Ghidra NES layout manifest", () => {
+  it("requires a private manifest path and rejects views without a cartridge", () => {
+    expect(() =>
+      ghidraHeadlessArguments({
+        ...nesLaunchBase,
+        nes: nesLaunchMetadata(1),
+        nesLayoutPath: "relative.json",
+      }),
+    ).toThrow(/absolute private/u);
+    expect(() =>
+      ghidraHeadlessArguments({
+        ...nesLaunchBase,
+        nesPrgViews: [{ mapper: 1, prg_mode: 3, prg_bank: 0 }],
+      }),
+    ).toThrow(/require an admitted NES/u);
+  });
+
+  it("keeps the maximum MMC3 state set out of the process argument vector", () => {
+    const nesPrgViews = ([0, 1] as const).flatMap((prg_mode) =>
+      Array.from({ length: 64 }, (_, r6) =>
+        Array.from({ length: 64 }, (_, r7) => ({
+          mapper: 4 as const,
+          prg_mode,
+          r6,
+          r7,
+        })),
+      ).flat(),
+    );
+    const args = ghidraHeadlessArguments({
+      ...nesLaunchBase,
+      nes: nesLaunchMetadata(32, false, 4),
+      nesPrgViews,
+    });
+    expect(args).toContain(nesLaunchBase.nesLayoutPath);
+    expect(
+      args.reduce(
+        (bytes, argument) => bytes + Buffer.byteLength(argument) + 1,
+        0,
+      ),
+    ).toBeLessThan(4096);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "owns the selected-state manifest through a launch failure and runtime cleanup",
+    async () => {
+      const parent = await createTestTempDirectory("rea-nes-manifest-test-");
+      const runtime = await createGhidraTestRuntime(parent);
+      runtimes.push(runtime);
+      const nes = nesLaunchMetadata(4, false, 4);
+      const nesPrgViews = [{ mapper: 4, prg_mode: 1, r6: 3, r7: 2 }] as const;
+      const layout = resolveNesMapperLayout(nes, nesPrgViews);
+      if (!layout.ok) throw new Error(layout.error);
+      const launcher = new GhidraHeadlessLauncher({
+        environment: {},
+        analyzeHeadlessPath: "/unconfigured/support/analyzeHeadless",
+        bridgeScriptPath: nesLaunchBase.bridgeScriptPath,
+        nes,
+        nesPrgViews,
+      });
+      const launched = await launcher.launch({
+        runtimeRoot: runtime.path,
+        transport: "unix-socket",
+        endpointPath: join(runtime.path, "bridge.sock"),
+        token: "descriptor-only",
+        runId: "d6fcbb66-e829-4ff6-a535-0035aec63139",
+        targetPath: nesLaunchBase.targetPath,
+        targetSha256: "b".repeat(64),
+        providerVersion: "12.1.4",
+        profileDigest: "a".repeat(64),
+      });
+      expect(launched.ok).toBe(false);
+      const path = join(runtime.path, "nes-layout.json");
+      expect(JSON.parse(await readFile(path, "utf8"))).toEqual(layout.value);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      await runtime.close();
+      await expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
 });
 
 describe("Ghidra headless launcher", () => {

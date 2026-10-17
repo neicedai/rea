@@ -226,7 +226,9 @@ export const providerCatalog = (sources) => {
       identity: sources.pwntoolsProvider.PWNTOOLS_PROVIDER_IDENTITY,
       contracts:
         sources.binaryDiagnosticsContracts.BINARY_DIAGNOSTICS_TOOL_CONTRACTS.filter(
-          ({ name }) => name !== "inspect_pe_resources",
+          ({ name }) =>
+            name === "inspect_binary_layout" ||
+            name === "inspect_recorded_crash",
         ),
     },
     {
@@ -250,6 +252,20 @@ export const providerCatalog = (sources) => {
         ({ kind }) => kind === "artifact-provider",
       ),
     },
+    {
+      identity: sources.artifactProviders.NES_CARTRIDGE_PROVIDER,
+      contracts:
+        sources.binaryDiagnosticsContracts.BINARY_DIAGNOSTICS_TOOL_CONTRACTS.filter(
+          ({ name }) =>
+            name === "inspect_nes_cartridge" ||
+            name === "trace_nes_mapper_writes" ||
+            name === "trace_nes_mapper_events" ||
+            name === "trace_nes_code" ||
+            name === "explore_nes_code" ||
+            name === "discover_nes_code",
+        ),
+    },
+
     {
       identity: sources.evmProvider.EVMOLE_PROVIDER_IDENTITY,
       contracts: sources.evmContracts.EVM_TOOL_CONTRACTS,

@@ -375,3 +375,14 @@ REA's failure status:
 set -o pipefail
 rea inspect-artifact ./app.asar --json | jq . > inspection.json
 ```
+
+## FC / NES cartridge analysis
+
+Use `inspect-nes-cartridge`, `trace-nes-mapper-writes`, `trace-nes-mapper-events`,
+`trace-nes-code`, `explore-nes-code` and `discover-nes-code` with an explicitly
+selected local ROM. These built-in tools preserve original byte offsets and
+conditional assumptions without an analysis engine. Native analysis commands
+accept `--nes-prg-views` with inline JSON or a JSON file containing complete
+supported mapper states. Each state is an independent bank context; it does not
+establish an observed runtime mapping. See the [FC/NES guide](ghidra-nes.md)
+for supported boards, source models and the separate Ghidra prerequisites.

@@ -13,6 +13,7 @@ export const schemaChildren = new Set([
   "items",
   "additionalItems",
   "contains",
+  "contentSchema",
   "additionalProperties",
   "unevaluatedProperties",
   "unevaluatedItems",

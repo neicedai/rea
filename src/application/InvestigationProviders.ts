@@ -49,6 +49,13 @@ export const PE_RESOURCES_PROVIDER = Object.freeze({
   version: "1",
 } as const);
 
+/** Portable cartridge metadata and source CHR graphics inspection. */
+export const NES_CARTRIDGE_PROVIDER = Object.freeze({
+  id: "rea-nes-cartridge",
+  name: "REA NES cartridge parser",
+  version: "1",
+} as const);
+
 /** Provider identity for deterministic managed-code comparison workflows. */
 export const MANAGED_WORKFLOW_PROVIDER = {
   id: "rea-dotnet-workflows",

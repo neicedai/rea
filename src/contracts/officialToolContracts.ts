@@ -44,7 +44,7 @@ export const OFFICIAL_TOOL_CONTRACTS = [
   ),
   official(
     "inspect_native_load_image",
-    "Verify the provider's loaded DOS MZ or explicitly selected COM image against its immutable target snapshot: complete original/modified source-byte digests, header/module file mappings and memory digests, relocations and external entry. Returns measured observations and independent checks with mismatch coordinates. COM verification includes its imposed entry register context and does not claim PSP/runtime coverage. Overlay and uninitialized coverage remain explicit; other formats return unsupported. Does not execute or modify the target.",
+    "Verify the provider's loaded DOS MZ, explicitly selected COM, or admitted NES image against its immutable target snapshot. Checks original/modified source digests, file mappings, memory digests and entries, plus DOS relocations/context or NES PRG mappings and per-view interrupt vectors. MMC1/MMC2/MMC3/MMC4 results retain selected mode/register states and complete CPU windows; omitted selections are labeled default-assumption, not observed runtime state. Bank-qualified addresses preserve alternative views; unresolved bank selection remains unknown. Returns measured observations and independent checks with mismatch coordinates. NES CHR/trainer data and runtime hardware behavior are not CPU-image coverage. Overlay and uninitialized coverage remain explicit; other formats return unsupported. Does not execute or modify the target.",
     z.strictObject({}),
   ),
   official(

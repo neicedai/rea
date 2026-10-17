@@ -16,6 +16,8 @@ import {
 } from "../filesystem/RegularFile.js";
 import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
+import { nesPrgViewsSchema, type NesPrgView } from "../domain/nesPrgViews.js";
+import { hasNesSignature } from "../domain/nes.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { readMipsElfMetadata } from "./MipsElfMetadata.js";
 import {
@@ -64,6 +66,7 @@ export interface BinaryTargetResolverOptions {
   readonly architecture?: BinaryArchitecture;
   readonly entryPoint?: string;
   readonly signal?: AbortSignal;
+  readonly nesPrgViews?: readonly NesPrgView[];
 }
 
 /**
@@ -83,6 +86,29 @@ export const parseBinaryTarget = async (
   const candidate = isAbsolute(input) ? input : resolve(cwd, input);
   try {
     throwIfTargetResolutionCancelled(signal);
+    const parsedViews =
+      options.nesPrgViews === undefined
+        ? undefined
+        : nesPrgViewsSchema.safeParse(options.nesPrgViews);
+    if (parsedViews !== undefined && !parsedViews.success)
+      return err(
+        new BinaryTargetError(
+          candidate,
+          `Invalid NES PRG views: ${parsedViews.error.message}`,
+        ),
+      );
+    const nesPrgViews = parsedViews?.data;
+    if (
+      nesPrgViews !== undefined &&
+      (formatHint !== undefined ||
+        (targetKind !== undefined && targetKind !== "executable"))
+    )
+      return err(
+        new BinaryTargetError(
+          candidate,
+          "NES PRG views require a header-detected NES executable target",
+        ),
+      );
     await access(candidate, constants.R_OK);
     throwIfTargetResolutionCancelled(signal);
     const canonical = await realpath(candidate);
@@ -172,15 +198,30 @@ export const parseBinaryTarget = async (
           availableArchitectures: ["x86"],
         });
       }
+      const signature = Buffer.alloc(4);
+      const observed = await handle.read(signature, 0, signature.length, 0);
+      throwIfTargetResolutionCancelled(signal);
+      const nesSignature = hasNesSignature(
+        signature.subarray(0, observed.bytesRead),
+      );
+      if (nesPrgViews !== undefined && !nesSignature)
+        return err(
+          new BinaryTargetError(
+            path,
+            "NES PRG views require a header-detected NES executable target",
+          ),
+        );
       // Probe WASM content before suffix-only database routing; an explicit
       // database selection keeps the caller's chosen interpretation.
       const artifactFormat =
-        targetKind === "database"
+        targetKind === "database" || nesSignature
           ? undefined
           : await detectArtifactFormat(path, handle, signal);
       if (
         targetKind === "database" ||
-        (targetKind === undefined && path.toLowerCase().endsWith(".hop"))
+        (targetKind === undefined &&
+          !nesSignature &&
+          path.toLowerCase().endsWith(".hop"))
       )
         return ok({
           path,
@@ -210,6 +251,23 @@ export const parseBinaryTarget = async (
             constraint: "file_format_rejected",
           }),
         );
+      if (nesPrgViews !== undefined) {
+        if (detected.value.format !== "nes")
+          return err(
+            new BinaryTargetError(
+              path,
+              "NES PRG views require a header-detected NES executable target",
+            ),
+          );
+        const mapper = detected.value.nes.mapper;
+        if (nesPrgViews.some((view) => view.mapper !== mapper))
+          return err(
+            new BinaryTargetError(
+              path,
+              "NES PRG view mapper does not match the cartridge header",
+            ),
+          );
+      }
       return ok({
         path,
         sourcePath,
@@ -217,6 +275,7 @@ export const parseBinaryTarget = async (
         sha256: await sha256Handle(handle, path, metadata, signal),
         kind: "executable",
         ...detected.value,
+        ...(nesPrgViews === undefined ? {} : { nesPrgViews }),
       });
     } finally {
       await handle.close();
@@ -293,6 +352,8 @@ const detectArtifactFormat = async (
       | "dos-mz"
       | "dos-com"
       | "raw-binary"
+      | "nes"
+      | "nes"
     >
   | undefined
 > => {

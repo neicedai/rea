@@ -1,3 +1,5 @@
+import type { NesRomMetadata } from "./nes.js";
+import type { NesPrgView } from "./nesPrgViews.js";
 import type { ZipPackageFormat } from "./zipPackageFormat.js";
 
 /** Provider-neutral CPU families detected from headers or explicitly selected raw loads. */
@@ -137,6 +139,17 @@ type ExecutableTarget = BinaryTargetIdentity & {
  * Each variant carries only metadata established for that exact file kind.
  */
 export type BinaryTarget =
+  | (BinaryTargetIdentity & {
+      readonly kind: "executable";
+      readonly format: "nes";
+      readonly architecture: "6502";
+      readonly availableArchitectures: readonly "6502"[];
+      readonly nes: NesRomMetadata;
+      /** Caller-selected complete mapper states, separate from ROM declarations. */
+      readonly nesPrgViews?: readonly NesPrgView[];
+      readonly executableRole?: never;
+      readonly managed?: never;
+    })
   | (BinaryTargetIdentity & {
       readonly kind: "executable";
       readonly format: "elf";

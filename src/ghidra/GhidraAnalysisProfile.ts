@@ -1,3 +1,7 @@
+import {
+  ghidraNesProfileParameters,
+  ghidraNesUnsupportedReason,
+} from "./GhidraNesProfile.js";
 import type {
   AnalysisProfileResolution,
   ProviderIdentity,
@@ -75,14 +79,18 @@ export const resolveGhidraAnalysisProfile = async (
     return Promise.resolve(
       err(new ProviderAdapterError(identity.id, "resolve_analysis_profile")),
     );
-  const mipsReason = ghidraProcessorUnsupportedReason(target);
-  if (mipsReason !== null)
+  const unsupportedReason =
+    target.format === "nes" && installation.platform === "win32"
+      ? "Windows Ghidra P0 does not admit NES cartridge preparation."
+      : (ghidraNesUnsupportedReason(target) ??
+        ghidraProcessorUnsupportedReason(target));
+  if (unsupportedReason !== null)
     return Promise.resolve(
       err(
         new AnalysisUnsupportedTargetError(
           "resolve_analysis_profile",
           target.path,
-          mipsReason,
+          unsupportedReason,
         ),
       ),
     );
@@ -191,13 +199,15 @@ export const resolveGhidraAnalysisProfile = async (
     );
   const selectedLanguage = languageOverride ?? pinnedLanguage;
   // DOS imports already force an admitted loader, language, and context.
-  if (dos && languageOverride !== undefined)
+  if ((dos || target.format === "nes") && languageOverride !== undefined)
     return Promise.resolve(
       err(
         new AnalysisUnsupportedTargetError(
           "resolve_analysis_profile",
           target.path,
-          "REA_GHIDRA_LANGUAGE_ID cannot override the admitted DOS real-mode import.",
+          target.format === "nes"
+            ? "REA_GHIDRA_LANGUAGE_ID cannot override the admitted NES mapper import."
+            : "REA_GHIDRA_LANGUAGE_ID cannot override the admitted DOS real-mode import.",
         ),
       ),
     );
@@ -306,6 +316,7 @@ export const resolveGhidraAnalysisProfile = async (
               psp_extension: { ...pspExtension.value },
             }
           : {}),
+        ...ghidraNesProfileParameters(target),
       }),
     }),
   );

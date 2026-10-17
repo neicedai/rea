@@ -16,9 +16,16 @@ import {
   classifyFatContainerIdentity,
   readFatContainerHeader,
 } from "./apple/machoContainer.js";
+import { hasNesSignature, parseNesHeader, type NesRomMetadata } from "./nes.js";
 
 /** Format and architecture facts recovered from an executable header. */
 export type ExecutableMetadata =
+  | {
+      readonly format: "nes";
+      readonly architecture: "6502";
+      readonly availableArchitectures: readonly "6502"[];
+      readonly nes: NesRomMetadata;
+    }
   | {
       readonly format: "elf";
       readonly architecture: "mips";
@@ -71,6 +78,17 @@ export const parseExecutableHeader = (
   fileSize = bytes.length,
   mzWindowsHeaderSignature?: Buffer,
 ): Result<ExecutableMetadata, string> => {
+  if (hasNesSignature(bytes)) {
+    const parsed = parseNesHeader(bytes, fileSize);
+    return parsed.ok
+      ? ok({
+          format: "nes",
+          architecture: "6502",
+          availableArchitectures: ["6502"],
+          nes: parsed.value,
+        })
+      : parsed;
+  }
   if (
     bytes.length >= 4 &&
     bytes.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))

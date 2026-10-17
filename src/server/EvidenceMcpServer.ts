@@ -6,6 +6,8 @@ import {
   isJSONRPCRequest,
   isJSONRPCNotification,
   isJSONRPCResultResponse,
+  INVALID_PARAMS,
+  INTERNAL_ERROR,
   type Implementation,
   type Icon,
   type JSONRPCMessage,
@@ -40,6 +42,7 @@ import {
   measureMcpResultWithinBudget,
   TARGET_CONTENT_RESULT_META,
 } from "./toolResultEncoding.js";
+import { paginateToolsList } from "./toolCatalogPagination.js";
 
 export type { CompactInputSchemaPresentation } from "../contracts/compactInputSchema.js";
 
@@ -93,7 +96,7 @@ const omitOutputSchemasFromToolsList = (
 /** Release every transport-owned reference for a cancelled/completed request. */
 export const forgetPendingMcpRequest = (
   pendingTools: Map<RequestId, string>,
-  pendingToolLists: Set<RequestId>,
+  pendingToolLists: Map<RequestId, unknown>,
   pendingCompletions: Map<RequestId, AbortController>,
   id: RequestId,
 ): void => {
@@ -199,7 +202,7 @@ class ErrorEvidenceTransport implements Transport {
   onmessage: Transport["onmessage"];
   readonly hasPerRequestStream?: boolean;
   private readonly pendingTools = new Map<RequestId, string>();
-  private readonly pendingToolLists = new Set<RequestId>();
+  private readonly pendingToolLists = new Map<RequestId, unknown>();
   private readonly pendingCompletions = new Map<RequestId, AbortController>();
 
   constructor(
@@ -220,7 +223,7 @@ class ErrorEvidenceTransport implements Transport {
       )
         this.pendingTools.set(message.id, message.params["name"]);
       if (isJSONRPCRequest(message) && message.method === "tools/list")
-        this.pendingToolLists.add(message.id);
+        this.pendingToolLists.set(message.id, message.params?.["cursor"]);
       if (isJSONRPCRequest(message) && message.method === "completion/complete")
         this.pendingCompletions.set(message.id, new AbortController());
       // The SDK suppresses replies after cancellation, so send() cannot release
@@ -306,9 +309,34 @@ class ErrorEvidenceTransport implements Transport {
       this.pendingToolLists.has(id);
     try {
       const recovered = this.recoverError(message, tool);
-      const advertised = omitToolSchemas
+      const projected = omitToolSchemas
         ? omitOutputSchemasFromToolsList(recovered, id)
         : recovered;
+      let advertised = projected;
+      if (
+        id !== undefined &&
+        this.pendingToolLists.has(id) &&
+        isJSONRPCResultResponse(projected)
+      ) {
+        const page = paginateToolsList(
+          projected,
+          this.pendingToolLists.get(id),
+        );
+        advertised = page.ok
+          ? page.value
+          : {
+              jsonrpc: "2.0",
+              id,
+              error: {
+                code:
+                  page.error.kind === "invalid_cursor"
+                    ? INVALID_PARAMS
+                    : INTERNAL_ERROR,
+                message: page.error.message,
+                data: page.error,
+              },
+            };
+      }
       if (
         isJSONRPCResultResponse(advertised) &&
         isCallToolResult(advertised.result) &&

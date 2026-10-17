@@ -248,6 +248,13 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
     idempotent: false,
   }),
   inspect_pe_resources: evidence,
+  inspect_nes_cartridge: evidence,
+
+  trace_nes_mapper_writes: evidence,
+  trace_nes_mapper_events: evidence,
+  trace_nes_code: evidence,
+  explore_nes_code: evidence,
+  discover_nes_code: evidence,
   inspect_analysis_view: evidence,
   inspect_firmware_regions: effects({
     mutatesSession: true,

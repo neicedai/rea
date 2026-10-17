@@ -318,6 +318,8 @@ describe("guided prompt catalog identity", () => {
   });
 });
 
+// Cold default-SDK calls compile the complete catalog before validating output.
+// These are functional workflows; startup latency is verified separately.
 describe("live server identity over MCP", () => {
   it("exposes live identity, a stable catalog, and changing availability", async () => {
     const session = createTestBinarySession(availabilityProvider());
@@ -359,7 +361,7 @@ describe("live server identity over MCP", () => {
         session.close(),
       ]);
     }
-  }, 10_000);
+  }, 60_000);
 
   it("compares the caller's digest against the selected compact tools/list catalog", async () => {
     const session = createTestBinarySession(availabilityProvider());
@@ -401,7 +403,7 @@ describe("live server identity over MCP", () => {
         session.close(),
       ]);
     }
-  }, 10_000);
+  }, 60_000);
 });
 
 describe("active-target availability over MCP", () => {
@@ -463,7 +465,7 @@ describe("active-target availability over MCP", () => {
         session.close(),
       ]);
     }
-  }, 10_000);
+  }, 60_000);
 });
 
 const PLIST_XML =

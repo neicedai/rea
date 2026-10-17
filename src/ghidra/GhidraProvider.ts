@@ -47,6 +47,7 @@ import {
   ghidraProcessorUnsupportedReason,
   isGhidraPspTarget,
 } from "./GhidraPspProfile.js";
+import { ghidraNesUnsupportedReason } from "./GhidraNesProfile.js";
 import { resolveGhidraExtensions } from "./extensions/GhidraExtensions.js";
 import {
   CAPABILITIES,
@@ -171,6 +172,9 @@ export class GhidraProvider implements AnalysisProviderCandidate {
           : null,
       executable_role: target.executableRole ?? null,
       managed: target.managed ?? null,
+      ...(target.format === "nes"
+        ? { nes_rom: jsonValueSchema.parse(target.nes) }
+        : {}),
     };
     if (target.kind !== "executable")
       return {
@@ -181,6 +185,17 @@ export class GhidraProvider implements AnalysisProviderCandidate {
       };
     if (hostPlatform === "win32")
       return inspectWindowsP0TargetSupport(target, diagnostics);
+    if (target.format === "nes") {
+      const reason = ghidraNesUnsupportedReason(target);
+      return reason === null
+        ? { status: "supported", code: null, reason: null, diagnostics }
+        : {
+            status: "unsupported",
+            code: "target_format_unsupported",
+            reason,
+            diagnostics,
+          };
+    }
     const mipsReason =
       isGhidraPspTarget(target) &&
       (hostPlatform !== "linux" ||

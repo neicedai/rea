@@ -296,3 +296,7 @@ and bypassing license restrictions are not authorized. This guidance does not
 amend MIT or third-party licenses.
 
 </div>
+
+## FC / NES
+
+[FC/NES cartridge analysis](../ghidra-nes.md): iNES/NES 2.0 inspection, supported mapper bank contexts, CPU/RAM source analysis and code discovery through CLI/MCP.

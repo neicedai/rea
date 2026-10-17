@@ -7,6 +7,8 @@ import type { Logger } from "pino";
 import {
   directAnalysisOptionsFromCli,
   nativeOpenOptionFields,
+  withCliNesPrgViews,
+  type CliDirectAnalysis,
 } from "./options.js";
 import type { CliInstance } from "./types.js";
 
@@ -14,8 +16,9 @@ import type { CliInstance } from "./types.js";
 export const registerCoreNativeCommands = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  providerAnalysis: DirectAnalysis["runDirectAnalysis"],
 ): void => {
+  const runDirectAnalysis = withCliNesPrgViews(providerAnalysis);
   registerAnnotationCommand(cli, logger, runDirectAnalysis);
   cli.command(CLI_COMMANDS.searchBytes, {
     description: "Find masked byte patterns in initialized provider memory",
@@ -256,7 +259,7 @@ export const registerCoreNativeCommands = (
 const registerNativeDispatchMetadataCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.inspectNativeDispatchMetadata, {
     description: "Inspect typed Objective-C and Swift dispatch metadata",
@@ -293,7 +296,7 @@ const registerNativeDispatchMetadataCommand = (
 const registerNativeUiActionCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.traceNativeUiAction, {
     description:
@@ -351,7 +354,7 @@ const registerNativeUiActionCommand = (
 const registerNativeApiCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.inspectNativeApi, {
     description: "Reconstruct one native function API boundary with evidence",
@@ -382,7 +385,7 @@ const registerNativeApiCommand = (
 const registerAnnotationCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.annotateNativeFunction, {
     description: "Edit function annotations and return refreshed analysis",

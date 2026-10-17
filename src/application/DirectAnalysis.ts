@@ -1,3 +1,4 @@
+import type { NesPrgView } from "../domain/nesPrgViews.js";
 import type { ExecutableFormatHint } from "../domain/dosCom.js";
 import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
 import type { JsonValue } from "../domain/jsonValue.js";
@@ -104,6 +105,7 @@ export const runDirectAnalysis = async (
     readonly formatHint?: ExecutableFormatHint;
     readonly architecture?: BinaryArchitecture;
     readonly entryPoint?: string;
+    readonly nesPrgViews?: readonly NesPrgView[];
   } = {},
 ): Promise<JsonValue> =>
   withProcessCancellation(options.signal, (signal) =>
@@ -111,6 +113,9 @@ export const runDirectAnalysis = async (
       logger: options.logger ?? silentLogger,
       snapshotPath: options.snapshotPath,
       signal,
+      ...(options.nesPrgViews === undefined
+        ? {}
+        : { nesPrgViews: options.nesPrgViews }),
       ...(options.formatHint === undefined
         ? {}
         : { formatHint: options.formatHint }),
@@ -227,6 +232,7 @@ const runAnalysis = async (
     readonly formatHint?: ExecutableFormatHint;
     readonly architecture?: BinaryArchitecture;
     readonly entryPoint?: string;
+    readonly nesPrgViews?: readonly NesPrgView[];
   },
 ): Promise<JsonValue> => {
   const { logger, signal, snapshotPath } = options;
@@ -245,6 +251,9 @@ const runAnalysis = async (
         path,
         snapshotPath,
         signal,
+        ...(options.nesPrgViews === undefined
+          ? {}
+          : { nesPrgViews: options.nesPrgViews }),
         ...(options.formatHint === undefined
           ? {}
           : { formatHint: options.formatHint }),
@@ -305,6 +314,9 @@ const runAnalysis = async (
       }
       const openOptions = {
         signal,
+        ...(options.nesPrgViews === undefined
+          ? {}
+          : { nesPrgViews: options.nesPrgViews }),
         ...(options.formatHint === undefined
           ? {}
           : { formatHint: options.formatHint }),
@@ -518,6 +530,7 @@ const prepareSnapshot = async (options: {
   readonly formatHint?: ExecutableFormatHint;
   readonly architecture?: BinaryArchitecture;
   readonly entryPoint?: string;
+  readonly nesPrgViews?: readonly NesPrgView[];
   readonly snapshotPath: string | undefined;
   readonly signal: AbortSignal;
 }): Promise<
@@ -533,6 +546,9 @@ const prepareSnapshot = async (options: {
   if (!loaded.ok) return loaded;
   const target = await parseBinaryTarget(path, {
     signal: options.signal,
+    ...(options.nesPrgViews === undefined
+      ? {}
+      : { nesPrgViews: options.nesPrgViews }),
     ...(options.formatHint === undefined
       ? {}
       : { formatHint: options.formatHint }),

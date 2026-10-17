@@ -1,5 +1,6 @@
 import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
 import { fileURLToPath } from "node:url";
+import canonicalize from "canonicalize";
 
 import {
   createAnalysisExecution,
@@ -21,6 +22,13 @@ import {
   sameGhidraLanguageOverride,
 } from "./GhidraAnalysisProfile.js";
 import { ghidraPinnedMipsLanguage } from "./GhidraMipsProfile.js";
+import {
+  GHIDRA_NES_COMPILER_SPEC_ID,
+  GHIDRA_NES_LANGUAGE_ID,
+  ghidraNesLimitations,
+  ghidraNesProfileParameters,
+  ghidraNesUnsupportedReason,
+} from "./GhidraNesProfile.js";
 import type { AnalysisProfileCommitment } from "../domain/analysisProfile.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import {
@@ -382,6 +390,23 @@ export const createGhidraProviderClient = (input: {
   );
   if (!prerequisites.ok) return unavailableClient(prerequisites.error);
   const committedProfile = prerequisites.value.profile;
+  if (
+    target.format === "nes" &&
+    (config.ghidraLanguageOverride !== undefined ||
+      Object.entries(ghidraNesProfileParameters(target)).some(
+        ([key, value]) =>
+          canonicalize(committedProfile.parameters[key]) !==
+          canonicalize(value),
+      ))
+  )
+    return unavailableClient(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "The committed NES profile does not match the admitted mapper bank layout; reopen the target without a generic language override.",
+        },
+      }),
+    );
   const psp = isGhidraPspTarget(target);
   const pspExtension = psp
     ? ghidraPspExtensionSchema.safeParse(
@@ -538,6 +563,7 @@ export const createGhidraProviderClient = (input: {
       ? ghidraRawBinaryLanguage(target.architecture)
       : undefined;
   const targetLimitations = [
+    ...ghidraNesLimitations(target),
     ...(target.format === "dos-mz"
       ? [
           "DOS MZ uses 16-bit x86 real mode with the Ghidra load segment 0x1000. Returned addresses are linear byte coordinates; they do not identify a unique segment:offset alias.",
@@ -607,6 +633,14 @@ export const createGhidraProviderClient = (input: {
       ...(config.ghidraDisabledAnalyzers === undefined
         ? {}
         : { disabledAnalyzers: config.ghidraDisabledAnalyzers }),
+      ...(target.format === "nes"
+        ? {
+            nes: target.nes,
+            ...(target.nesPrgViews === undefined
+              ? {}
+              : { nesPrgViews: target.nesPrgViews }),
+          }
+        : {}),
       ...(seeds === undefined ? {} : { analysisSeeds: seeds }),
       platform: installation.platform,
       ...(extensions.length === 0 ? {} : { analysisExtensions: extensions }),
@@ -622,10 +656,10 @@ export const createGhidraProviderClient = (input: {
         : "unix-socket",
     providerVersion: prerequisites.value.providerVersion,
     profileDigest: committedProfile.digest,
-    ...(["dos-mz", "dos-com"].includes(target.format)
+    ...(target.format === "nes"
       ? {
-          expectedLanguageId: "x86:LE:16:Real Mode",
-          expectedCompilerSpecId: "default",
+          expectedLanguageId: GHIDRA_NES_LANGUAGE_ID,
+          expectedCompilerSpecId: GHIDRA_NES_COMPILER_SPEC_ID,
         }
       : rawLanguage === undefined
         ? importLanguage === undefined
@@ -1023,6 +1057,16 @@ const ghidraClientPrerequisites = (
     );
   if (profile === undefined || profile.provider.id !== "ghidra")
     return err(new ProviderAdapterError("ghidra", "health"));
+  if (target.format === "nes") {
+    const reason =
+      installation.platform === "win32"
+        ? "Windows Ghidra P0 accepts PE targets only."
+        : ghidraNesUnsupportedReason(target);
+    if (reason !== null)
+      return err(
+        new AnalysisCapabilityUnavailableError("ghidra", "health", reason),
+      );
+  }
   return ok({
     analyzeHeadlessPath: installation.analyzeHeadlessPath,
     javaHome: installation.javaHome,

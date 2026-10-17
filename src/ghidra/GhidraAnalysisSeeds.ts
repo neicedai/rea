@@ -48,6 +48,8 @@ export type GhidraSeedReport = z.infer<typeof ghidraSeedReportSchema>;
 type SeedKind = "function" | "code" | "label";
 interface SeedEntry {
   readonly address: bigint;
+  /** Decoded Ghidra space name; null selects the target's default space. */
+  readonly addressSpace: string | null;
   readonly kind: SeedKind;
   readonly name?: string;
 }
@@ -64,7 +66,8 @@ const seedLineError = (line: number, constraint: string) =>
 
 /**
  * Parse `address<TAB>kind[<TAB>name]` lines. Blank lines and `#` comments are
- * ignored. Addresses are hexadecimal offsets in the default address space.
+ * ignored. Addresses are hexadecimal offsets, optionally qualified with an
+ * encoded Ghidra address-space name as `space:0xoffset`.
  */
 export const parseGhidraSeeds = (
   text: string,
@@ -80,8 +83,14 @@ export const parseGhidraSeeds = (
     if (fields.length < 2 || fields.length > 3)
       return err(seedLineError(number, "expected address<TAB>kind[<TAB>name]"));
     const [address, kind, name] = fields;
-    if (address === undefined || !/^0x[0-9a-fA-F]{1,16}$/u.test(address))
-      return err(seedLineError(number, "address must be 0x-prefixed hex"));
+    const coordinate = address === undefined ? null : seedAddress(address);
+    if (coordinate === null)
+      return err(
+        seedLineError(
+          number,
+          "address must be 0x-prefixed hex, optionally qualified as encodedSpace:0xhex",
+        ),
+      );
     if (kind !== "function" && kind !== "code" && kind !== "label")
       return err(seedLineError(number, "kind must be function, code or label"));
     if (
@@ -102,13 +111,12 @@ export const parseGhidraSeeds = (
       return err(
         seedLineError(number, "a code seed takes no name; add a label seed"),
       );
-    const value = BigInt(address);
-    const key = `${value.toString(16)}:${kind}`;
+    const key = `${formatSeedAddress(coordinate)}\t${kind}`;
     if (seen.has(key))
       return err(seedLineError(number, `duplicate ${kind} seed at ${address}`));
     seen.add(key);
     entries.push({
-      address: value,
+      ...coordinate,
       kind,
       ...(name === undefined ? {} : { name }),
     });
@@ -123,12 +131,46 @@ export const parseGhidraSeeds = (
   return ok(entries);
 };
 
-/** Canonical script input: lowercase addresses, fixed field order, LF endings. */
+const seedAddress = (
+  value: string,
+): Pick<SeedEntry, "address" | "addressSpace"> | null => {
+  const match =
+    /^(?:(?<space>(?:[A-Za-z0-9._~-]|%[0-9a-fA-F]{2})+):)?0[xX](?<offset>[0-9a-fA-F]{1,16})$/u.exec(
+      value,
+    );
+  const offset = match?.groups?.offset;
+  if (offset === undefined) return null;
+  const encodedSpace = match?.groups?.space;
+  let addressSpace: string | null = null;
+  if (encodedSpace !== undefined) {
+    try {
+      addressSpace = decodeURIComponent(encodedSpace);
+    } catch {
+      return null;
+    }
+    if (/[\u0000-\u001f\u007f]/u.test(addressSpace)) return null;
+  }
+  return { address: BigInt(`0x${offset}`), addressSpace };
+};
+
+/** Use the bridge's UTF-8 address-space encoding, retaining its case. */
+const encodeAddressSpace = (value: string): string =>
+  encodeURIComponent(value).replace(
+    /[!'()*]/gu,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+const formatSeedAddress = (
+  entry: Pick<SeedEntry, "address" | "addressSpace">,
+): string =>
+  `${entry.addressSpace === null ? "" : `${encodeAddressSpace(entry.addressSpace)}:`}0x${entry.address.toString(16)}`;
+
+/** Canonical script input: normalized spaces/offsets, fixed fields, LF endings. */
 const normalizedSeeds = (entries: readonly SeedEntry[]): string =>
   entries
     .map(
       (entry) =>
-        `0x${entry.address.toString(16)}\t${entry.kind}${entry.name === undefined ? "" : `\t${entry.name}`}\n`,
+        `${formatSeedAddress(entry)}\t${entry.kind}${entry.name === undefined ? "" : `\t${entry.name}`}\n`,
     )
     .join("");
 

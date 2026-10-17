@@ -6,7 +6,11 @@ import {
   type BinaryTarget,
 } from "../domain/binaryTargetTypes.js";
 import { err, ok } from "../domain/result.js";
-import { AnalysisCancelledError } from "../domain/analysisErrorCore.js";
+import {
+  AnalysisCancelledError,
+  AnalysisCapabilityUnavailableError,
+} from "../domain/analysisErrorCore.js";
+import { jsonValueSchema } from "../domain/jsonValue.js";
 import type {
   AnalysisClient,
   AnalysisProfileResolutionOptions,
@@ -108,7 +112,18 @@ export class IdaProvider implements AnalysisProviderCandidate {
     const diagnostics = {
       target_kind: target.kind,
       target_format: target.format,
+      ...(target.format === "nes"
+        ? { nes_rom: jsonValueSchema.parse(target.nes) }
+        : {}),
     };
+    if (target.format === "nes")
+      return {
+        status: "unsupported",
+        code: "target_format_unsupported",
+        reason:
+          "NES ROM analysis requires the Ghidra NES adapter; REA's IDA adapter has no NES import profile.",
+        diagnostics,
+      };
     if (
       target.kind === "executable" &&
       isElfMetadataArchitecture(target.architecture)
@@ -144,11 +159,19 @@ export class IdaProvider implements AnalysisProviderCandidate {
     return { status: "supported", code: null, reason: null, diagnostics };
   }
   async resolveAnalysisProfile(
-    _target: BinaryTarget,
+    target: BinaryTarget,
     options?: AnalysisProfileResolutionOptions,
   ) {
     if (options?.signal?.aborted === true)
       return err(new AnalysisCancelledError("ida:profile"));
+    if (target.format === "nes")
+      return err(
+        new AnalysisCapabilityUnavailableError(
+          "ida",
+          "resolve_analysis_profile",
+          "REA's IDA adapter has no NES import profile. Select the Ghidra NES adapter.",
+        ),
+      );
     const config = this.#configuration();
     if (!config.ok) return config;
     return ok({
@@ -175,6 +198,18 @@ export class IdaProvider implements AnalysisProviderCandidate {
     target: BinaryTarget,
     profile?: AnalysisProfileCommitment,
   ): AnalysisClient {
+    if (target.format === "nes")
+      return {
+        execute: async (operation) =>
+          err(
+            new AnalysisCapabilityUnavailableError(
+              "ida",
+              operation,
+              "REA's IDA adapter has no NES import profile. Select the Ghidra NES adapter.",
+            ),
+          ),
+        close: async () => ok(null),
+      };
     const config = this.#configuration();
     if (!config.ok)
       return {

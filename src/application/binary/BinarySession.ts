@@ -39,6 +39,7 @@ import {
   resolveSessionTarget,
   validateResolvedSessionTarget,
   type BinarySessionOpenOptions,
+  type BinarySessionPreviewOptions,
   type ResolvedSessionOpen,
 } from "./BinarySessionOpen.js";
 import {
@@ -189,7 +190,7 @@ export class BinarySession
   /** Resolve a target and provider profile without creating a provider client. */
   previewTarget(
     target: BinaryTarget,
-    options: BinarySessionOpenOptions = {},
+    options: BinarySessionPreviewOptions = {},
   ): Promise<Result<ResolvedSessionOpen, AnalysisError>> {
     if (isAborted(options.signal))
       return Promise.resolve(err(new AnalysisCancelledError("open_binary")));

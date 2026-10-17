@@ -7,6 +7,7 @@ import {
   rawBinarySelectionError,
 } from "../domain/rawBinary.js";
 import { z } from "zod";
+import { nesPrgViewsSchema } from "../domain/nesPrgViews.js";
 import { analysisProviderSelectorSchema } from "./providerSelection.js";
 
 /** Caller-supplied analysis snapshot path; must name its destination absolutely. */
@@ -47,6 +48,11 @@ export const openBinaryInputSchema = z
       .optional()
       .describe(
         "Caller-supplied load and entry address (0xhex). File offset 0 is mapped here. Required with format=raw-binary; rejected otherwise.",
+      ),
+    nes_prg_views: nesPrgViewsSchema
+      .optional()
+      .describe(
+        "Complete caller-selected PRG states for supported NES mapper boards; VRC2/VRC4 views may explicitly select immutable wiring for a matching legacy/submapper-0 header without rewriting source bytes. Every view must retain the same assumption; explicit submapper conflicts are rejected. Each state becomes an independent static context containing all its CPU ROM windows. Omission preserves independent candidate banks for UxROM/AxROM/Color Dreams/BNROM/NINA-001/GxROM/Camerica and uses a reported default assumption for MMC boards, never observed runtime state.",
       ),
     provider_id: analysisProviderSelectorSchema.optional(),
     snapshot_path: snapshotPathSchema.optional(),

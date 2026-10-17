@@ -17,9 +17,14 @@ const loadMcpVerifierResults = () => import("./mcp-verifier-results.mjs");
 /** Promisified child_process execution helper. */
 export const exec = promisify(execFile);
 
-/** Run a command and return its stdout. */
-export const run = async (command, args, env) =>
-  (await exec(command, args, { env })).stdout;
+/** Run a command with an optional explicit capture budget and return its stdout. */
+export const run = async (command, args, env, { maxBuffer } = {}) =>
+  (
+    await exec(command, args, {
+      env,
+      ...(maxBuffer === undefined ? {} : { maxBuffer }),
+    })
+  ).stdout;
 
 /** Run a command and treat exit code 1 as a non-throwing status result. */
 export const runWithStatus = async (command, args, env) => {

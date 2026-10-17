@@ -1,4 +1,9 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import {
+  isJSONRPCResultResponse,
+  STDIO_DEFAULT_MAX_BUFFER_SIZE,
+} from "@modelcontextprotocol/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { expect, it } from "vitest";
 
@@ -86,12 +91,22 @@ it("omits only output schema advertisements and keeps canonical MCP output valid
   }
 });
 
-it("keeps a full catalog below a measured one-megabyte frame when output schemas are off", async () => {
-  const measure = async (omitOutputSchemas: boolean): Promise<number> => {
+it("preserves every input contract across output profiles within default SDK catalog frames", async () => {
+  const measure = async (omitOutputSchemas: boolean) => {
     const server = createServer(omitOutputSchemas);
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "catalog-size-test", version: "1" });
+    const frames: number[] = [];
+    const send = serverTransport.send.bind(serverTransport);
+    serverTransport.send = async (message, options) => {
+      if (
+        isJSONRPCResultResponse(message) &&
+        Array.isArray(message.result["tools"])
+      )
+        frames.push(Buffer.byteLength(JSON.stringify(message), "utf8") + 1);
+      await send(message, options);
+    };
     for (const contract of TOOL_CONTRACTS)
       server.registerTool(
         contract.name,
@@ -104,16 +119,34 @@ it("keeps a full catalog below a measured one-megabyte frame when output schemas
     await client.connect(clientTransport);
     try {
       const listed = await client.listTools();
-      return Buffer.byteLength(JSON.stringify(listed), "utf8");
+      expect(listed.tools).toHaveLength(TOOL_CONTRACTS.length);
+      expect(
+        listed.tools.every(
+          (tool) => (tool.outputSchema === undefined) === omitOutputSchemas,
+        ),
+      ).toBe(true);
+      expect(frames.length).toBeGreaterThan(0);
+      expect(
+        frames.every((bytes) => bytes <= STDIO_DEFAULT_MAX_BUFFER_SIZE),
+      ).toBe(true);
+      return {
+        bytes: Buffer.byteLength(JSON.stringify(listed), "utf8"),
+        inputs: listed.tools.map((tool) => ({
+          name: tool.name,
+          digest: createHash("sha256")
+            .update(JSON.stringify(tool.inputSchema))
+            .digest("hex"),
+        })),
+      };
     } finally {
       await client.close();
       await server.close();
     }
   };
 
-  const fullBytes = await measure(false);
-  const compactBytes = await measure(true);
-  expect(fullBytes).toBeGreaterThan(1024 * 1024);
-  expect(compactBytes).toBeLessThan(1024 * 1024);
-  expect(compactBytes).toBeLessThan(fullBytes);
+  const full = await measure(false);
+  const omitted = await measure(true);
+  expect(full.bytes).toBeGreaterThan(STDIO_DEFAULT_MAX_BUFFER_SIZE);
+  expect(omitted.inputs).toEqual(full.inputs);
+  expect(omitted.bytes).toBeLessThan(full.bytes);
 });

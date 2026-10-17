@@ -1,3 +1,9 @@
+import { z } from "incur";
+import type { DirectAnalysis } from "../composition/directAnalysis.js";
+import { parseCliJsonInput } from "../cliJsonInput.js";
+import { nesPrgViewsSchema } from "../domain/nesPrgViews.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
 import {
   executableFormatHintSchema,
   type ExecutableFormatHint,
@@ -10,6 +16,57 @@ import {
 import { analysisProviderSelectorSchema } from "../contracts/providerSelection.js";
 import type { AnalysisProviderSelector } from "../contracts/providerSelection.js";
 import type { Logger } from "pino";
+
+const nesPrgViewsSelectionOption = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    "Inline JSON or a JSON file containing complete Mapper 1/2/4/7/9/10/11/34/66/71 PRG states for independent static views",
+  );
+
+type DirectAnalysisOptions = NonNullable<
+  Parameters<DirectAnalysis["runDirectAnalysis"]>[3]
+>;
+type CliAnalysisOptions = DirectAnalysisOptions & {
+  readonly nesPrgViewsInput?: string;
+};
+export type CliDirectAnalysis = (
+  path: Parameters<DirectAnalysis["runDirectAnalysis"]>[0],
+  tool: Parameters<DirectAnalysis["runDirectAnalysis"]>[1],
+  arguments_: Parameters<DirectAnalysis["runDirectAnalysis"]>[2],
+  options?: CliAnalysisOptions,
+) => ReturnType<DirectAnalysis["runDirectAnalysis"]>;
+
+/** Resolve CLI JSON at the adapter boundary; application options remain typed. */
+export const withCliNesPrgViews =
+  (runDirectAnalysis: DirectAnalysis["runDirectAnalysis"]): CliDirectAnalysis =>
+  async (path, tool, arguments_, options = {}) => {
+    const { nesPrgViewsInput, ...selected } = options;
+    if (nesPrgViewsInput === undefined)
+      return runDirectAnalysis(path, tool, arguments_, selected);
+    const input = await parseCliJsonInput(nesPrgViewsInput, tool);
+    if (!input.ok) return input.error;
+    const parsed = nesPrgViewsSchema.safeParse(input.value);
+    if (!parsed.success)
+      return {
+        error: "Analysis failed",
+        ...projectAnalysisError(
+          analysisInputErrorFromIssues(
+            tool,
+            parsed.error.issues.map((issue) => ({
+              ...issue,
+              path: ["nes_prg_views", ...issue.path],
+            })),
+            { nes_prg_views: input.value },
+          ),
+        ),
+      };
+    return runDirectAnalysis(path, tool, arguments_, {
+      ...selected,
+      nesPrgViews: parsed.data,
+    });
+  };
 
 export const providerSelectionOption = analysisProviderSelectorSchema
   .optional()
@@ -38,6 +95,7 @@ export const entryPointSelectionOption = rawBinaryEntryPointSchema
 
 /** Shared CLI flags that bind a native target interpretation. */
 export const nativeOpenOptionFields = {
+  "nes-prg-views": nesPrgViewsSelectionOption,
   "target-format": formatSelectionOption,
   architecture: architectureSelectionOption,
   "entry-point": entryPointSelectionOption,
@@ -46,6 +104,7 @@ export const nativeOpenOptionFields = {
 
 /** Native CLI flags consumed when opening a target for one-shot analysis. */
 export interface NativeOpenCliFlags {
+  readonly "nes-prg-views"?: string | undefined;
   readonly snapshot?: string | undefined;
   readonly provider?: AnalysisProviderSelector | undefined;
   readonly "target-format"?: ExecutableFormatHint | undefined;
@@ -73,12 +132,16 @@ export const directAnalysisOptions = (
 export const directAnalysisOptionsFromCli = (
   logger: Logger,
   options: NativeOpenCliFlags,
-) =>
-  directAnalysisOptions(
+) => ({
+  ...directAnalysisOptions(
     logger,
     options.snapshot,
     options.provider,
     options["target-format"],
     options.architecture,
     options["entry-point"],
-  );
+  ),
+  ...(options["nes-prg-views"] === undefined
+    ? {}
+    : { nesPrgViewsInput: options["nes-prg-views"] }),
+});

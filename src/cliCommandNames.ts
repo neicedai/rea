@@ -60,6 +60,13 @@ export const CLI_COMMANDS = Object.freeze({
   inspectGoBinary: "inspect-go-binary",
   inspectRustBinary: "inspect-rust-binary",
   inspectPeResources: "inspect-pe-resources",
+  inspectNesCartridge: "inspect-nes-cartridge",
+
+  traceNesMapperWrites: "trace-nes-mapper-writes",
+  traceNesMapperEvents: "trace-nes-mapper-events",
+  traceNesCode: "trace-nes-code",
+  exploreNesCode: "explore-nes-code",
+  discoverNesCode: "discover-nes-code",
   inspectAnalysisView: "inspect-analysis-view",
   listFridaDevices: "list-frida-devices",
   listFridaProcesses: "list-frida-processes",

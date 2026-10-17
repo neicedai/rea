@@ -62,7 +62,10 @@ describe("Ghidra seed parsing", () => {
   });
 
   it.each([
-    ["401000\tfunction", "line 1: address must be 0x-prefixed hex"],
+    [
+      "401000\tfunction",
+      "line 1: address must be 0x-prefixed hex, optionally qualified as encodedSpace:0xhex",
+    ],
     ["0x401000\tdata", "line 1: kind must be function, code or label"],
     ["0x401000", "line 1: expected address<TAB>kind[<TAB>name]"],
     ["0x401000\tlabel", "line 1: a label seed requires a name"],
@@ -85,6 +88,53 @@ describe("Ghidra seed parsing", () => {
       { setting: "REA_GHIDRA_SEED_FILE", constraint },
     ]);
   });
+
+  it("keeps equal offsets in separate named banks and default memory distinct", () => {
+    const parsed = parseGhidraSeeds(
+      [
+        "0x8000\tfunction",
+        "NES_PRG_B001:0x8000\tfunction",
+        "NES_PRG_B002:0x8000\tfunction",
+        "nes_prg_b001:0x8000\tfunction",
+      ].join("\n"),
+    );
+    if (!parsed.ok) throw parsed.error;
+    expect(parsed.value.map((entry) => entry.addressSpace)).toEqual([
+      null,
+      "NES_PRG_B001",
+      "NES_PRG_B002",
+      "nes_prg_b001",
+    ]);
+    expect(parsed.value.map((entry) => entry.address)).toEqual([
+      0x8000n,
+      0x8000n,
+      0x8000n,
+      0x8000n,
+    ]);
+  });
+
+  it("rejects duplicate coordinates expressed with different percent encodings", () => {
+    const parsed = parseGhidraSeeds(
+      "NES_PRG_B001:0x8000\tfunction\n%4eES_PRG_B001:0X00008000\tfunction\n",
+    );
+    if (parsed.ok) throw new Error("Expected duplicate bank seeds to fail");
+    expect(parsed.error.settings[0]?.constraint).toContain(
+      "line 2: duplicate function seed",
+    );
+  });
+
+  it.each([
+    "NES_PRG_B001::8000",
+    "NES_PRG_B001:8000",
+    "NES%ZZ:0x8000",
+    "NES%FF:0x8000",
+    "NES%C0%AF:0x8000",
+    "NES%00:0x8000",
+    "NES%0A:0x8000",
+    "NES_PRG_B001:0x10000000000000000",
+  ])("rejects a malformed qualified coordinate %s", (address) => {
+    expect(parseGhidraSeeds(`${address}\tcode`).ok).toBe(false);
+  });
 });
 
 describe("Ghidra seed commitment", () => {
@@ -105,6 +155,45 @@ describe("Ghidra seed commitment", () => {
     const runtime = await workspace();
     const snapshot = await snapshotGhidraAnalysisSeeds(commitment, runtime);
     expect(await readFile(snapshot, "utf8")).toBe(CANONICAL);
+  });
+
+  it("commits canonical qualified addresses without losing their spaces", async () => {
+    const directory = await workspace();
+    const path = join(directory, "bank-seeds.tsv");
+    await writeFile(
+      path,
+      [
+        "NES%5fPRG_B001:0X00008000\tfunction\tbank_one",
+        "NES_PRG_B002:0x8000\tfunction\tbank_two",
+        "overlay%3atext:0x80A0\tlabel\tmarker",
+        "0x8000\tcode",
+      ].join("\n"),
+    );
+    const canonical = [
+      "NES_PRG_B001:0x8000\tfunction\tbank_one",
+      "NES_PRG_B002:0x8000\tfunction\tbank_two",
+      "overlay%3Atext:0x80a0\tlabel\tmarker",
+      "0x8000\tcode",
+      "",
+    ].join("\n");
+    const resolved = await resolveGhidraAnalysisSeeds(path);
+    if (!resolved.ok) throw resolved.error;
+    if (resolved.value === undefined) throw new Error("Expected a commitment");
+    expect(resolved.value).toMatchObject({
+      format: "rea-ghidra-seeds-v1",
+      sha256: createHash("sha256").update(canonical).digest("hex"),
+      entries: { function: 2, code: 1, label: 1 },
+    });
+    const snapshot = await snapshotGhidraAnalysisSeeds(
+      resolved.value,
+      await workspace(),
+    );
+    expect(await readFile(snapshot, "utf8")).toBe(canonical);
+
+    await writeFile(path, canonical.replace("NES_PRG_B002", "NES_PRG_B003"));
+    await expect(
+      snapshotGhidraAnalysisSeeds(resolved.value, await workspace()),
+    ).rejects.toThrow(/changed after the analysis profile was committed/u);
   });
 
   it("is absent when no seed file is configured", async () => {

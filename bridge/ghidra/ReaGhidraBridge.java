@@ -205,8 +205,11 @@ public final class ReaGhidraBridge extends HeadlessScript {
             boolean dosCom = currentProgram.getLanguageID().getIdAsString()
                 .equals("x86:LE:16:Real Mode");
             String preparation = dosCom ? "REA DOS COM prepared" : "REA raw binary prepared";
-            if (!currentProgram.getOptions(ghidra.program.model.listing.Program.PROGRAM_INFO)
-                .getBoolean(preparation, false)) {
+            var info = currentProgram.getOptions(ghidra.program.model.listing.Program.PROGRAM_INFO);
+            if (info.getString("REA NES mapping", "").equals("nes-contexts-v3")) {
+                if (!currentProgram.getLanguageID().getIdAsString().equals("6502:LE:16:default"))
+                    throw new IllegalStateException("REA NES processor identity did not match");
+            } else if (!info.getBoolean(preparation, false)) {
                 throw new IllegalStateException(
                     dosCom ? "REA DOS COM entry/context preparation failed" :
                         "REA raw binary entry preparation failed"

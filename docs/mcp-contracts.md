@@ -343,6 +343,13 @@ are currently unavailable. Opening or closing a target or observing a provider
 health transition leaves that catalog unchanged and does not emit
 `notifications/tools/list_changed`.
 
+Large catalogs use standard `nextCursor` pagination. Follow each cursor until
+it is absent to retrieve every tool with its complete input and output schemas;
+the pinned MCP SDK's `listTools()` aggregates these pages automatically. Each
+page includes complete tool definitions and fits the SDK's default 10 MiB
+stdio frame budget. Cursors bind the ordered advertised catalog and are refused
+if the catalog changes; restart discovery without a cursor in that case.
+
 Call `binary_session` with `{}` and read `result.tool_availability` to choose a
 callable operation for the current target, provider, host, and negotiated client
 capabilities. The default result contains the complete inventory in groups that
@@ -666,8 +673,10 @@ Schemas share repeated definitions through schema-local references while
 preserving complete nested fields and validation rules. Input schemas whose
 shared definitions would exhaust a client's declaration-rendering reference
 budget (Pi 1.1.0 code-mode shares 32 reference expansions across an input and
-renders every later reference as `unknown`) are re-projected without shared
-definitions, so every advertised field renders with complete structure.
+renders every later reference as `unknown`) are re-projected inline. Large
+validation programs are then split into schema-local resources within that
+same reference budget, avoiding generated-validator stack overflow while
+preserving every field and validation rule.
 Input properties retain their descriptions and literal examples.
 
 When a host forwards input schemas to the model, their examples consume context.

@@ -1,5 +1,6 @@
 import type { ExecutableFormatHint } from "../../domain/dosCom.js";
 import type { BinaryArchitecture } from "../../domain/binaryTargetTypes.js";
+import type { NesPrgView } from "../../domain/nesPrgViews.js";
 import type { AnalysisProviderSelector } from "../../contracts/providerSelection.js";
 import type { AnalysisProfileCommitment } from "../../domain/analysisProfile.js";
 import {
@@ -27,7 +28,14 @@ export interface BinarySessionOpenOptions {
   readonly entryPoint?: string;
   readonly snapshot?: AnalysisSnapshot;
   readonly providerId?: AnalysisProviderSelector;
+  readonly nesPrgViews?: readonly NesPrgView[];
 }
+
+/** A parsed target already owns its format and caller-selected PRG views. */
+export type BinarySessionPreviewOptions = Pick<
+  BinarySessionOpenOptions,
+  "signal" | "snapshot" | "providerId"
+>;
 
 interface CurrentOpenBinding {
   readonly target: BinaryTarget;
@@ -56,7 +64,7 @@ interface ResolveSessionTargetInput {
   readonly router: SessionProviderRouter;
   readonly current: CurrentOpenBinding | undefined;
   readonly target: BinaryTarget;
-  readonly options: BinarySessionOpenOptions;
+  readonly options: BinarySessionPreviewOptions;
   readonly stagedSnapshotMatches: (
     target: BinaryTarget,
     profile: AnalysisProfileCommitment | null,
@@ -81,6 +89,9 @@ export const resolveSessionOpen = async (
     ...(options.entryPoint === undefined
       ? {}
       : { entryPoint: options.entryPoint }),
+    ...(options.nesPrgViews === undefined
+      ? {}
+      : { nesPrgViews: options.nesPrgViews }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
   if (!parsed.ok) return parsed;
@@ -131,7 +142,13 @@ const sameSessionTarget = (
   current.path === target.path &&
   // Native admission is bound to the requested path, not just its realpath.
   (current.sourcePath ?? current.path) === (target.sourcePath ?? target.path) &&
-  snapshotMatchesTarget(snapshotTarget(current), target);
+  snapshotMatchesTarget(snapshotTarget(current), target) &&
+  sameNesPrgViews(current, target);
+
+/** Omission carries a different basis from an explicitly selected default state. */
+const sameNesPrgViews = (left: BinaryTarget, right: BinaryTarget): boolean =>
+  JSON.stringify(left.format === "nes" ? left.nesPrgViews : undefined) ===
+  JSON.stringify(right.format === "nes" ? right.nesPrgViews : undefined);
 
 interface ValidateSnapshotInput {
   readonly snapshot: AnalysisSnapshot | undefined;

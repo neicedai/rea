@@ -20,6 +20,8 @@ import { verifyPackagePack } from "./verify-package-pack.mjs";
 import { verifyPackagePlatform } from "./verify-package-platform.mjs";
 import { verifyPackageSetup } from "./verify-package-setup.mjs";
 import { verifyRepositorySkill } from "./verify-repository-skill.mjs";
+import { verifyPackageNes } from "./verify-package-nes.mjs";
+
 import { verifyManaged } from "./verify-package-managed.mjs";
 import { verifyUnknownProvider } from "./verify-package-unknown-provider.mjs";
 import { completeVerifierRun, createVerifierRun } from "./lib/verifier-run.mjs";
@@ -153,6 +155,13 @@ try {
       environment: environmentData.environment,
     }),
   );
+  await runStage("NES analysis CLI", () =>
+    verifyPackageNes({
+      cli,
+      workspace,
+      environment: environmentData.environment,
+    }),
+  );
   await runStage("managed analysis CLI", () =>
     verifyManaged({
       cli,
@@ -215,6 +224,7 @@ try {
     cli: true,
     analysisCli: true,
     artifactCli: true,
+    nesCli: true,
     managedCli: true,
     managedReconstructionCli: true,
     managedNativeVerificationCli: true,

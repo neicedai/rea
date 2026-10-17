@@ -12,6 +12,15 @@ import { captureProviderEnvironment } from "./providerEnvironment.js";
 import { createPeResourcesService } from "../composition/binaryDiagnostics.js";
 import type { PeResourcesService } from "../application/binaryDiagnostics/PeResourcesService.js";
 import { registerPeResourcesTool } from "./registerPeResourcesTool.js";
+import { createNesCartridgeService } from "../composition/binaryDiagnostics.js";
+import { registerNesCartridgeTool } from "./registerNesCartridgeTool.js";
+
+import { createNesMapperTraceService } from "../composition/binaryDiagnostics.js";
+import { registerNesMapperTraceTool } from "./registerNesMapperTraceTool.js";
+import { createNesCodeTraceService } from "../composition/binaryDiagnostics.js";
+import { registerNesCodeTraceTool } from "./registerNesCodeTraceTool.js";
+import { createNesCodeDiscoveryService } from "../composition/binaryDiagnostics.js";
+import { registerNesCodeDiscoveryTool } from "./registerNesCodeDiscoveryTool.js";
 import type { EvmInterfaceService } from "../application/evm/EvmInterfaceService.js";
 import { evmInterfaceModule } from "../composition/evm.js";
 import { registerEvmTools } from "./registerEvmTools.js";
@@ -632,6 +641,7 @@ const registerConfiguredAnalysisTools = (
     goBinary,
     peResources,
     webNetworkCapture,
+    artifactResources,
   }: ServerToolContext,
   android: AndroidAnalysisPort,
   wasmArtifact: Pick<WasmArtifactService, "inspect" | "close">,
@@ -697,6 +707,34 @@ const registerConfiguredAnalysisTools = (
     recordEvidence,
     withAdmittedAnalysis,
     evidenceById,
+  );
+  registerNesCartridgeTool(
+    server,
+    createNesCartridgeService(artifactResources),
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
+  );
+
+  registerNesMapperTraceTool(
+    server,
+    createNesMapperTraceService(artifactResources),
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
+  );
+  registerNesCodeTraceTool(
+    server,
+    createNesCodeTraceService(artifactResources),
+    toolLogger,
+    recordEvidence,
+    withAdmittedAnalysis,
+  );
+  registerNesCodeDiscoveryTool(
+    server,
+    createNesCodeDiscoveryService(artifactResources),
+    toolLogger,
+    { recordEvidence, withAdmittedAnalysis },
   );
   registerEvmTools(
     server,

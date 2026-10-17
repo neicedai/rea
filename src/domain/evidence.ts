@@ -47,6 +47,7 @@ const subjectFormatSchema = z.enum([
   "dos-mz",
   "dos-com",
   "raw-binary",
+  "nes",
   "zip",
   "ipa",
   "apk",
@@ -76,8 +77,12 @@ const subjectBaseSchema = z.strictObject({
 // The format owns the architecture claim, including nested Evidence subjects.
 const subjectSchema = z.discriminatedUnion("format", [
   subjectBaseSchema.extend({
-    format: subjectFormatSchema.exclude(["raw-binary"]),
+    format: subjectFormatSchema.exclude(["raw-binary", "nes"]),
     architecture: z.enum(BINARY_ARCHITECTURES).exclude(["6502"]).nullable(),
+  }),
+  subjectBaseSchema.extend({
+    format: z.literal("nes"),
+    architecture: z.literal("6502"),
   }),
   subjectBaseSchema.extend({
     format: z.literal("raw-binary"),

@@ -21,6 +21,7 @@ import {
   type BinaryTarget,
 } from "../domain/binaryTargetTypes.js";
 import type { JsonValue } from "../domain/jsonValue.js";
+import { jsonValueSchema } from "../domain/jsonValue.js";
 import type { Logger } from "pino";
 import { AnalysisCapabilityUnavailableError } from "../domain/analysisErrorCore.js";
 import { err, ok } from "../domain/result.js";
@@ -106,6 +107,9 @@ export class HopperProvider implements AnalysisProviderCandidate {
       target_kind: target.kind,
       target_format: target.format,
       architecture: target.architecture ?? null,
+      ...(target.format === "nes"
+        ? { nes_rom: jsonValueSchema.parse(target.nes) }
+        : {}),
     };
     if (target.kind !== "executable" && target.kind !== "database")
       return {
@@ -148,6 +152,14 @@ export class HopperProvider implements AnalysisProviderCandidate {
         code: "target_format_unsupported",
         reason:
           "Headerless raw-binary analysis requires the Ghidra adapter with a caller-supplied architecture and entry point.",
+        diagnostics,
+      };
+    if (target.format === "nes")
+      return {
+        status: "unsupported",
+        code: "target_format_unsupported",
+        reason:
+          "NES ROM analysis requires the Ghidra NES adapter; REA's Hopper adapter has no NES import profile.",
         diagnostics,
       };
     if (target.format === "dos-mz" || target.format === "dos-com")

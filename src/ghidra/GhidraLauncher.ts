@@ -4,7 +4,12 @@ import {
   snapshotGhidraAnalysisSeeds,
   type GhidraSeedCommitment,
 } from "./GhidraAnalysisSeeds.js";
-import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
+import {
+  ghidraImportArguments,
+  ghidraNesPreparationArguments,
+  snapshotGhidraNesLayout,
+  type GhidraImportOptions,
+} from "./GhidraImportArguments.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { mkdir, readFile, realpath } from "node:fs/promises";
 import { basename, dirname, join, posix, win32 } from "node:path";
@@ -144,32 +149,22 @@ const ghidraLaunchCommandOutput = (
 };
 
 /** Static coordinates for an extracted Ghidra release and packaged script. */
-export interface GhidraHeadlessLauncherOptions {
+export interface GhidraHeadlessLauncherOptions extends GhidraImportOptions {
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly analyzeHeadlessPath: string;
   readonly javaHome?: string;
   readonly javaVmName?: string;
   readonly bridgeScriptPath: string;
-  readonly platform?: NodeJS.Platform;
+
   readonly comSpec?: string;
-  /** Select the admitted 16-bit real-mode MZ import instead of auto-detection. */
-  readonly dosMz?: true;
-  readonly dosCom?: true;
-  readonly rawBinary?: {
-    readonly languageId: string;
-    readonly compilerSpecId: string;
-    readonly baseAddr: string;
-  };
-  /** Explicit import language committed by the analysis profile. */
-  readonly languageOverride?: GhidraLanguageOverride;
+
   /** Auto-analyzers disabled before default auto-analysis, as configured. */
   readonly disabledAnalyzers?: readonly string[];
   /** Caller seeds committed by the analysis profile, applied before analysis. */
   readonly analysisSeeds?: GhidraSeedCommitment;
   readonly analysisExtensions?: readonly GhidraExtension[];
   readonly pspExtension?: GhidraPspExtension;
-  /** Remap typed float storage for the soft-float o32 ABI after analysis. */
-  readonly mipsSoftFloat?: true;
+
   /** Spawn seam for provider-boundary lifecycle tests. */
   readonly spawnProcess?: typeof spawnOwnedProviderProcess;
   /** LaunchSupport probe seam for Java-free launcher fixtures. */
@@ -227,6 +222,10 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
         platform,
         await ghidraConfigReleaseDirectory(this.options.analyzeHeadlessPath),
       );
+      const nesLayoutPath = await snapshotGhidraNesLayout(
+        this.options,
+        session.runtimeRoot,
+      );
       const seedPath =
         this.options.analysisSeeds === undefined
           ? undefined
@@ -257,6 +256,7 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
       if (isAborted(options.signal))
         return err(new AnalysisCancelledError("open_binary"));
       const headlessArguments = ghidraHeadlessArguments({
+        ...this.options,
         platform,
         ...(psp === undefined ? {} : { psp: true as const }),
         ...(this.options.mipsSoftFloat === undefined
@@ -264,7 +264,6 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
           : { mipsSoftFloat: this.options.mipsSoftFloat }),
         projectRoot: paths.projectRoot,
         targetPath: session.targetPath,
-        bridgeScriptPath: this.options.bridgeScriptPath,
         descriptorPath: paths.descriptorPath,
         ghidraLogPath: paths.ghidraLogPath,
         scriptLogPath: paths.scriptLogPath,
@@ -280,6 +279,7 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
         ...(this.options.languageOverride === undefined
           ? {}
           : { languageOverride: this.options.languageOverride }),
+        ...(nesLayoutPath === undefined ? {} : { nesLayoutPath }),
         ...(seedPath === undefined ? {} : { seedPath }),
         ...(this.options.disabledAnalyzers === undefined
           ? {}
@@ -527,28 +527,20 @@ const cleanupStartedProcess = (
       : cleanupOwnedProcessGroup(started.ownership);
 
 /** Paths encoded into one bounded analyzeHeadless invocation. */
-export interface GhidraHeadlessArgumentOptions {
-  readonly platform?: NodeJS.Platform;
+export interface GhidraHeadlessArgumentOptions extends GhidraImportOptions {
   readonly projectRoot: string;
   readonly targetPath: string;
   readonly bridgeScriptPath: string;
   readonly descriptorPath: string;
   readonly ghidraLogPath: string;
   readonly scriptLogPath: string;
-  readonly psp?: true;
-  readonly mipsSoftFloat?: true;
-  readonly dosMz?: true;
-  readonly dosCom?: true;
-  readonly rawBinary?: {
-    readonly languageId: string;
-    readonly compilerSpecId: string;
-    readonly baseAddr: string;
-  };
-  readonly languageOverride?: GhidraLanguageOverride;
+
   /** Auto-analyzers disabled by the pre-analysis options script. */
   readonly disabledAnalyzers?: readonly string[];
   /** Canonical seed snapshot passed to the pre-analysis seed script. */
   readonly seedPath?: string;
+  /** Owned runtime file containing the committed NES layout, never inline argv JSON. */
+  readonly nesLayoutPath?: string;
 }
 
 /** Build the complete read-only headless invocation in deterministic order. */
@@ -560,103 +552,13 @@ export const ghidraHeadlessArguments = (
   const scriptPath =
     (options.platform ?? process.platform) === "win32" ? win32 : posix;
   const bridgeDirectory = scriptPath.dirname(options.bridgeScriptPath);
-  const override = options.languageOverride;
   const rawBinary = options.rawBinary;
-  if (
-    options.psp === true &&
-    (options.dosMz === true ||
-      options.dosCom === true ||
-      override !== undefined)
-  )
-    throw new Error(
-      "A PSP ELF import cannot be combined with DOS or a generic Ghidra language override.",
-    );
-  if (options.psp === true && rawBinary !== undefined)
-    throw new Error(
-      "A PSP ELF import cannot be combined with a raw-binary import.",
-    );
-  if (
-    options.mipsSoftFloat === true &&
-    (options.psp === true ||
-      options.dosMz === true ||
-      options.dosCom === true ||
-      rawBinary !== undefined)
-  )
-    throw new Error(
-      "MIPS soft-float storage applies only to a generic MIPS ELF import.",
-    );
-  if (
-    override !== undefined &&
-    (options.dosMz === true || options.dosCom === true)
-  )
-    throw new Error(
-      "A Ghidra language override cannot be combined with a DOS import.",
-    );
-  if (override !== undefined && rawBinary !== undefined)
-    throw new Error(
-      "A Ghidra language override cannot be combined with a raw-binary import.",
-    );
-  if (
-    rawBinary !== undefined &&
-    (options.dosMz === true || options.dosCom === true)
-  )
-    throw new Error(
-      "A raw-binary import cannot be combined with a DOS import.",
-    );
   return [
     options.projectRoot,
     "rea-project",
     "-import",
     options.targetPath,
-    ...(options.dosMz === true
-      ? [
-          "-loader",
-          "MzLoader",
-          "-processor",
-          "x86:LE:16:Real Mode",
-          "-cspec",
-          "default",
-        ]
-      : options.dosCom === true
-        ? [
-            "-loader",
-            "BinaryLoader",
-            "-loader-baseAddr",
-            "1000:0100",
-            "-processor",
-            "x86:LE:16:Real Mode",
-            "-cspec",
-            "default",
-          ]
-        : rawBinary === undefined
-          ? options.psp === true
-            ? [
-                "-loader",
-                "PspElfLoader",
-                "-processor",
-                "Allegrex:LE:32:default",
-                "-cspec",
-                "default",
-              ]
-            : override !== undefined
-              ? [
-                  "-processor",
-                  override.languageId,
-                  ...(override.compilerSpecId === undefined
-                    ? []
-                    : ["-cspec", override.compilerSpecId]),
-                ]
-              : []
-          : [
-              "-loader",
-              "BinaryLoader",
-              "-loader-baseAddr",
-              rawBinary.baseAddr,
-              "-processor",
-              rawBinary.languageId,
-              "-cspec",
-              rawBinary.compilerSpecId,
-            ]),
+    ...ghidraImportArguments(options),
     "-readOnly",
     "-deleteProject",
     "-log",
@@ -665,6 +567,17 @@ export const ghidraHeadlessArguments = (
     options.scriptLogPath,
     "-scriptPath",
     bridgeDirectory,
+    ...(options.nes === undefined
+      ? []
+      : [
+          "-preScript",
+          scriptPath.join(bridgeDirectory, "ReaGhidraPrepareNes.java"),
+          ...ghidraNesPreparationArguments(
+            options.targetPath,
+            options.nes,
+            options.nesLayoutPath,
+          ),
+        ]),
     ...(options.dosCom === true
       ? [
           "-preScript",

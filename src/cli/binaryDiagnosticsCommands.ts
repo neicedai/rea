@@ -13,6 +13,11 @@ import { withCommandCancellation } from "./commandCancellation.js";
 import { inspectPeResourcesInputSchema } from "../domain/native/peResources.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { finishAnalysisCommand } from "./finishAnalysisCommand.js";
+import { registerNesCartridgeCommand } from "./nesCartridgeCommand.js";
+
+import { registerNesMapperTraceCommand } from "./nesMapperTraceCommand.js";
+import { registerNesCodeTraceCommand } from "./nesCodeTraceCommand.js";
+import { registerNesCodeDiscoveryCommand } from "./nesCodeDiscoveryCommand.js";
 
 /** Inspect operator-selected files through the same shared workflow as MCP. */
 export const registerBinaryDiagnosticsCommands = (
@@ -20,6 +25,11 @@ export const registerBinaryDiagnosticsCommands = (
   logger: Logger,
   environment: Readonly<NodeJS.ProcessEnv>,
 ): void => {
+  registerNesCartridgeCommand(cli, logger);
+
+  registerNesMapperTraceCommand(cli, logger);
+  registerNesCodeTraceCommand(cli, logger);
+  registerNesCodeDiscoveryCommand(cli, logger);
   cli.command(CLI_COMMANDS.inspectPeResources, {
     description:
       "Inspect PE resource identities, payload ranges, hashes and icon-group relationships",

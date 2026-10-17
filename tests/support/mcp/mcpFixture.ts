@@ -21,39 +21,70 @@ const DEFAULT_CLIENT_IDENTITY: McpClientIdentity = {
 
 /** Create an MCP connection registry for a fixture composition root. */
 export const createTestMcp = (): TestMcp => {
-  const connections: { readonly client: Client; readonly server: McpServer }[] =
-    [];
+  interface OwnedConnection {
+    readonly pending: Set<Client | McpServer>;
+    closing: Promise<readonly unknown[]> | undefined;
+  }
+  const connections = new Set<OwnedConnection>();
+  const release = async (
+    connection: OwnedConnection,
+  ): Promise<readonly unknown[]> => {
+    if (connection.closing !== undefined) return connection.closing;
+    const pending = (async () => {
+      const failures: unknown[] = [];
+      for (const resource of connection.pending) {
+        try {
+          await resource.close();
+          connection.pending.delete(resource);
+        } catch (cause) {
+          failures.push(cause);
+        }
+      }
+      if (connection.pending.size === 0) connections.delete(connection);
+      return failures;
+    })();
+    connection.closing = pending;
+    try {
+      return await pending;
+    } finally {
+      connection.closing = undefined;
+    }
+  };
 
   return {
     connect: async (server, identity = DEFAULT_CLIENT_IDENTITY) => {
       const client = new Client(identity);
       const [clientTransport, serverTransport] =
         InMemoryTransport.createLinkedPair();
+      const connection: OwnedConnection = {
+        pending: new Set([client, server]),
+        closing: undefined,
+      };
+      connections.add(connection);
       try {
         await server.connect(serverTransport);
         await client.connect(clientTransport);
       } catch (cause) {
-        await Promise.allSettled([client.close(), server.close()]);
+        const failures = await release(connection);
+        if (failures.length)
+          throw new AggregateError(
+            [cause, ...failures],
+            "MCP test initialization and cleanup failed",
+            { cause },
+          );
         throw cause;
       }
-      connections.push({ client, server });
       return client;
     },
     close: async () => {
-      const results = await Promise.allSettled(
-        [...connections].reverse().map(async ({ client, server }) => {
-          try {
-            await client.close();
-          } finally {
-            await server.close();
-          }
-        }),
-      );
-      const failure = results.find(
-        (result): result is PromiseRejectedResult =>
-          result.status === "rejected",
-      );
-      if (failure !== undefined) throw failure.reason;
+      const failures = (
+        await Promise.all([...connections].reverse().map(release))
+      ).flat();
+      if (failures.length)
+        throw new AggregateError(
+          failures,
+          "MCP test connection cleanup failed",
+        );
     },
   };
 };

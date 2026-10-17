@@ -1,6 +1,8 @@
 import { z } from "incur";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { openRegularFile } from "../filesystem/RegularFile.js";
+import { hasNesSignature } from "../domain/nes.js";
 
 import { resolveCliAnalysisSelector } from "./analysisSelector.js";
 import type { DirectAnalysis } from "../composition/directAnalysis.js";
@@ -10,6 +12,8 @@ import type { Logger } from "pino";
 import {
   directAnalysisOptionsFromCli,
   nativeOpenOptionFields,
+  withCliNesPrgViews,
+  type CliDirectAnalysis,
 } from "./options.js";
 import type { CliInstance } from "./types.js";
 import { runCliJavaScriptApplicationAnalysis } from "./javascriptApplicationAnalysis.js";
@@ -21,8 +25,9 @@ import { AnalysisInputError } from "../domain/analysisErrorCore.js";
 export const registerCoreBinaryCommands = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  providerAnalysis: DirectAnalysis["runDirectAnalysis"],
 ): void => {
+  const runDirectAnalysis = withCliNesPrgViews(providerAnalysis);
   registerOverviewCommands(cli, logger, runDirectAnalysis);
   registerDecompileCommand(cli, logger, runDirectAnalysis);
   registerFunctionCommand(cli, logger, runDirectAnalysis);
@@ -35,7 +40,7 @@ export const registerCoreBinaryCommands = (
 const registerOverviewCommands = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   const overviewOptions = z.object({
     snapshot: z
@@ -152,7 +157,7 @@ const registerOverviewCommands = (
 const registerDecompileCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.decompile, {
     description: "Read one part of an app as code",
@@ -222,6 +227,7 @@ const routesToJavaScriptAnalysis = async (
     readonly "target-format"?: "dos-com" | "raw-binary" | undefined;
     readonly architecture?: string | undefined;
     readonly "entry-point"?: string | undefined;
+    readonly "nes-prg-views"?: string | undefined;
     readonly provider?: string | undefined;
   },
 ): Promise<boolean> =>
@@ -230,11 +236,41 @@ const routesToJavaScriptAnalysis = async (
   options["target-format"] === undefined &&
   options.architecture === undefined &&
   options["entry-point"] === undefined &&
+  options["nes-prg-views"] === undefined &&
   (await isJavaScriptApplicationPath(path));
 
 const isJavaScriptApplicationPath = async (path: string): Promise<boolean> => {
   const lower = path.toLowerCase();
-  if (lower.endsWith(".asar")) return true;
+  if (lower.endsWith(".asar")) {
+    // A filename is a routing hint, not authority to reinterpret a cartridge.
+    const handle = await openRegularFile(path, { symlinks: "follow" }).catch(
+      (cause: unknown) => {
+        // Let target admission report expected filesystem failures as typed errors.
+        if (
+          cause instanceof Error &&
+          "code" in cause &&
+          [
+            "ENOENT",
+            "ENOTDIR",
+            "EACCES",
+            "EPERM",
+            "EISDIR",
+            "ENOTFILE",
+          ].includes(String(cause.code))
+        )
+          return undefined;
+        throw cause;
+      },
+    );
+    if (handle === undefined) return false;
+    try {
+      const prefix = Buffer.alloc(4);
+      const observed = await handle.read(prefix, 0, prefix.length, 0);
+      return !hasNesSignature(prefix.subarray(0, observed.bytesRead));
+    } finally {
+      await handle.close();
+    }
+  }
   if (lower.endsWith(".app")) return false;
   try {
     return (await stat(path)).isDirectory();
@@ -249,7 +285,7 @@ const isJavaScriptApplicationPath = async (path: string): Promise<boolean> => {
 const registerXrefsCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.xrefs, {
     description: "List bounded references to an analyzed address",
@@ -294,7 +330,7 @@ const registerXrefsCommand = (
 const registerTraceCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.trace, {
     description: "Trace a literal feature through analyzed references",
@@ -344,7 +380,7 @@ const registerTraceCommand = (
 const registerFunctionCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.function, {
     description: "Analyze one complete function with evidence",
@@ -393,7 +429,7 @@ const registerFunctionCommand = (
 const registerInstructionsCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.instructions, {
     description: "Read every raw instruction without decompiling",
@@ -442,7 +478,7 @@ const registerInstructionsCommand = (
 const registerSearchCommand = (
   cli: CliInstance,
   logger: Logger,
-  runDirectAnalysis: DirectAnalysis["runDirectAnalysis"],
+  runDirectAnalysis: CliDirectAnalysis,
 ): void => {
   cli.command(CLI_COMMANDS.search, {
     description: "Search every analyzed string or procedure name",
