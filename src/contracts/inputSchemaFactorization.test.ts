@@ -8,6 +8,7 @@ import {
   countLocalReferenceExpansions,
 } from "./inputSchemaPresentation.js";
 import { toolInputSchemaWithMetadata } from "./toolSchemaMetadata.js";
+import { factorInputJsonSchema } from "./inputSchemaFactorization.js";
 
 const requests = [
   ["trace_nes_code", { path: "/fixture.nes", initial: { mapper: 32 } }],
@@ -58,4 +59,32 @@ it.each(cases)(
       );
   },
   60_000,
+);
+
+it.each(["$defs", "definitions"] as const)(
+  "preserves caller-owned %s even when its definitions are not referenced",
+  (key) => {
+    const schema = {
+      type: "object",
+      properties: Object.fromEntries(
+        Array.from({ length: 5000 }, (_, index) => [
+          `field_${index}`,
+          { type: "string" },
+        ]),
+      ),
+      [key]: {
+        caller: {
+          type: "string",
+          description: "Caller-owned source definition",
+        },
+      },
+    };
+    expect(
+      factorInputJsonSchema(
+        schema,
+        advertisedReferenceExpansionBudget,
+        key === "$defs" ? "draft-2020-12" : "draft-07",
+      ),
+    ).toBe(schema);
+  },
 );

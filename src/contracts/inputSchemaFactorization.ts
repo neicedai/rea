@@ -15,6 +15,8 @@ interface Node {
 const isSchema = (value: unknown): value is Schema =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const resourceKeys = new Set([
+  "$defs",
+  "definitions",
   "$ref",
   "$id",
   "$anchor",
